@@ -1,0 +1,13 @@
+{
+  "name": "service-manager",
+  "version": "1.0.0",
+  "description": "多项目多服务本地管理面板",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "ws": "^8.16.0"
+  }
+}

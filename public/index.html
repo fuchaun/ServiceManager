@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Service Manager</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header>
+    <div class="header-left">
+      <h1>⚡ Service Manager</h1>
+      <span class="status-summary" id="statusSummary">0 / 0 运行中</span>
+    </div>
+    <div class="header-right">
+      <button class="btn btn-danger" id="stopAllBtn">停止全部</button>
+      <button class="btn btn-primary" id="addProjectBtn">+ 添加项目</button>
+    </div>
+  </header>
+
+  <main id="main"></main>
+
+  <!-- Project Modal -->
+  <div class="modal-overlay" id="projectModal">
+    <div class="modal">
+      <h2 id="projectModalTitle">添加项目</h2>
+      <div class="form-group">
+        <label>项目名称</label>
+        <input type="text" id="projectName" placeholder="例如：电商平台">
+      </div>
+      <div class="form-group">
+        <label>项目路径（工作目录）</label>
+        <div class="input-group">
+          <input type="text" id="projectPath" placeholder="例如：/Users/xxx/projects/my-project">
+          <button class="btn btn-sm folder-picker-btn" data-target="projectPath">📁 选择</button>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" data-close="projectModal">取消</button>
+        <button class="btn btn-primary" id="saveProjectBtn">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Service Modal -->
+  <div class="modal-overlay" id="serviceModal">
+    <div class="modal">
+      <h2 id="serviceModalTitle">添加服务</h2>
+      <div class="form-group">
+        <label>服务名称</label>
+        <input type="text" id="serviceName" placeholder="例如：前端开发服务器">
+      </div>
+      <div class="form-group">
+        <label>启动命令</label>
+        <input type="text" id="serviceCommand" placeholder="例如：npm run dev">
+      </div>
+      <div class="form-group">
+        <label>端口号（可选，填写后运行时可直接点击打开网页）</label>
+        <input type="number" id="servicePort" placeholder="例如：3000" min="1" max="65535">
+      </div>
+      <div class="form-group">
+        <label>工作目录（可选，留空则使用项目路径）</label>
+        <div class="input-group">
+          <input type="text" id="serviceCwd" placeholder="例如：./frontend">
+          <button class="btn btn-sm folder-picker-btn" data-target="serviceCwd">📁 选择</button>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>环境变量（可选，每行 KEY=value）</label>
+        <textarea id="serviceEnv" rows="3" placeholder="PORT=3000&#10;NODE_ENV=development"></textarea>
+      </div>
+      <div class="quick-commands">
+        <label>快速选择命令模板</label>
+        <div class="quick-cmds">
+          <button class="chip" data-cmd="npm run dev">npm run dev</button>
+          <button class="chip" data-cmd="npm run start">npm run start</button>
+          <button class="chip" data-cmd="npm run server">npm run server</button>
+          <button class="chip" data-cmd="python manage.py runserver">Django</button>
+          <button class="chip" data-cmd="python -m flask run --debug">Flask</button>
+          <button class="chip" data-cmd="go run main.go">Go</button>
+          <button class="chip" data-cmd="docker compose up">Docker</button>
+          <button class="chip" data-cmd="make dev">make dev</button>
+          <button class="chip" data-cmd="yarn dev">yarn dev</button>
+          <button class="chip" data-cmd="pnpm dev">pnpm dev</button>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" data-close="serviceModal">取消</button>
+        <button class="btn btn-primary" id="saveServiceBtn">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

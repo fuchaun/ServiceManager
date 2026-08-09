@@ -1,0 +1,170 @@
+# Service Manager — 多项目服务管理面板
+
+一个本地 Web 应用，用浏览器统一管理多个项目的多个服务进程。预先配好启动命令，一键启动/停止，实时查看日志，告别满屏终端窗口。
+
+## 功能一览
+
+| 功能 | 说明 |
+|------|------|
+| **项目管理** | 添加/编辑/删除项目，配置项目根路径，支持 Finder 文件夹选择（macOS） |
+| **服务配置** | 每个项目下可配置多个服务，预先写好启动命令、工作目录、环境变量、端口号 |
+| **一键启停** | 单个服务启动/停止、项目内全部启动/停止、全局一键停止 |
+| **实时日志** | WebSocket 实时推送 stdout/stderr，带时间戳，终端样式显示，收起不丢失 |
+| **状态追踪** | 运行中（绿色脉冲）/ 已停止（灰色）/ 异常退出（红色），显示 PID |
+| **端口管理** | 服务可配置端口号，运行时显示可点击链接直接打开网页，端口冲突自动检测提醒 |
+| **文件夹选择** | 路径输入框旁内置 Finder 选择按钮，调用 macOS 原生文件夹选择对话框 |
+| **配置持久化** | 所有配置存在 `config.json`，重启不丢失 |
+| **安全保护** | 运行中的服务不可删除，前后端双重拦截 |
+| **快速模板** | 内置 npm/Django/Flask/Go/Docker 等命令模板，一键填充 |
+
+## 技术栈
+
+- **后端**：Node.js + Express + ws（WebSocket）
+- **前端**：原生前端 HTML/CSS/JS，零构建步骤
+- **进程管理**：`child_process.spawn`，`detached: true` 独立进程组，停止时 `process.kill(-pid)` 杀掉整棵进程树
+- **安全**：仅监听 `127.0.0.1:3456`，不对外暴露
+
+> 注意：文件夹选择功能（Finder 选择器）依赖 macOS 的 `osascript` 命令，在其他平台上该按钮无效。其他功能跨平台通用。
+
+## 项目结构
+
+```
+├── server.js                              # 后端：Express API + WebSocket + 进程管理
+├── package.json                           # 依赖配置
+├── package-lock.json                      # 依赖锁定
+├── config.example.json                    # 配置文件模板
+├── com.service-manager.plist.example      # launchd 配置文件模板（macOS 开机自启用）
+├── setup-autostart.sh                     # macOS 开机自启安装/卸载脚本
+├── .gitignore                             # Git 忽略规则
+├── logs/                                  # 运行日志目录（运行后自动创建）
+└── public/
+    ├── index.html                         # 页面结构
+    ├── style.css                          # 暗色主题样式
+    └── app.js                             # 前端逻辑
+```
+
+## 快速开始
+
+### 1. 安装依赖
+
+```bash
+cd service-manager
+npm install
+```
+
+### 2. 准备配置文件
+
+```bash
+cp config.example.json config.json
+```
+
+然后编辑 `config.json`，填入你的项目和服务配置。
+
+### 3. 启动服务
+
+```bash
+node server.js
+```
+
+浏览器打开 `http://localhost:3456` 即可使用。
+
+### 4. 使用流程
+
+1. 点击「+ 添加项目」，填写项目名称和路径（macOS 下可点击 📁 按钮用 Finder 选择）
+2. 在项目下点击「+ 添加服务」，填写服务名称、启动命令、端口号
+3. 点击「启动」运行服务，点击「日志」展开实时输出
+4. 点击「停止」终止服务（会杀掉整个进程树，包括子进程）
+5. 「全部启动」一键启动项目下所有服务
+6. 服务运行时端口徽章为绿色可点击，点击直接在新标签页打开 `http://localhost:端口`
+
+---
+
+## 设置开机自启（macOS 常驻后台）
+
+使用 macOS 的 `launchd` 实现开机自启 + 崩溃自动重启。
+
+### 安装
+
+先准备好 plist 配置文件：
+
+```bash
+cp com.service-manager.plist.example com.service-manager.plist
+```
+
+编辑 `com.service-manager.plist`，将以下两项改为你的实际路径：
+- `ProgramArguments` 中的 node 路径（运行 `which node` 查看）
+- `WorkingDirectory` / `StandardOutPath` / `StandardErrorPath` 中的项目路径
+
+然后打开终端，运行：
+
+```bash
+bash setup-autostart.sh
+```
+
+脚本会自动完成以下操作：
+
+1. 将 LaunchAgent 配置安装到 `~/Library/LaunchAgents/`
+2. 用 `launchctl` 加载服务
+3. 开启 `RunAtLoad`（开机自启）和 `KeepAlive`（崩溃自动重启）
+4. 验证服务状态
+
+安装成功后，服务地址：`http://localhost:3456`
+
+### 备用方案：登录项（macOS）
+
+如果脚本提示 `launchctl` 加载失败，可以手动添加：
+
+1. 使用 Automator 创建一个应用程序，运行以下 Shell 脚本：
+   ```
+   cd /path/to/service-manager && node server.js
+   ```
+2. 打开 **系统设置 > 通用 > 登录项**
+3. 将创建的应用程序拖入登录项
+
+### 常用管理命令
+
+```bash
+# 查看服务状态
+launchctl list com.service-manager
+
+# 手动停止服务
+launchctl kill TERM gui/$(id -u)/com.service-manager
+
+# 查看运行日志
+tail -f logs/stdout.log
+tail -f logs/stderr.log
+```
+
+---
+
+## 卸载开机自启
+
+打开终端，运行：
+
+```bash
+bash setup-autostart.sh --uninstall
+```
+
+脚本会自动完成以下操作：
+
+1. 卸载 `launchctl` 中的服务条目
+2. 删除 `~/Library/LaunchAgents/com.service-manager.plist`
+3. 确认已移除开机自启
+
+如果之前用的是登录项方式，还需手动到 **系统设置 > 通用 > 登录项** 中移除对应的应用程序。
+
+---
+
+## 设计细节
+
+- **进程树清理**：通过 `detached: true` 创建独立进程组，停止时用 `process.kill(-pid)` 杀掉整棵进程树，避免子进程残留
+- **日志缓冲**：服务端缓冲最近 500 行日志，新客户端连接时自动回放历史
+- **日志持久化**：收起/展开日志面板不会清除内容，`render()` 前保存终端 DOM、渲染后恢复
+- **弹窗防误关**：模态框遮罩层使用 `mousedown` + `mouseup` 双重判定，在输入框拖选文字滑出弹窗不会误关闭
+- **端口冲突检测**：多个服务配置相同端口时，端口徽章变红闪烁提醒
+- **删除保护**：运行中的服务不可删除，项目下有运行中服务时整个项目也不可删除
+- **安全监听**：仅绑定 `127.0.0.1`，不对外暴露
+
+## License
+
+MIT
