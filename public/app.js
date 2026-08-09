@@ -245,6 +245,7 @@ function renderService(service, project) {
         <span class="service-command">${escapeHtml(service.command)}${envHint}</span>
         ${portBadge}
         ${isRunning && status.pid ? `<span class="service-pid">PID ${status.pid}</span>` : ''}
+        ${isRunning && status.reattached ? `<span class="reattached-badge" title="此进程在服务管理器重启前已在运行，已自动重新接管。停止后重新启动可恢复完整日志捕获。">🔄 重接管</span>` : ''}
         <div class="service-actions">
           ${isRunning
             ? `<button class="btn btn-sm btn-danger" onclick="stopService('${service.id}')">停止</button>`
@@ -480,6 +481,82 @@ async function saveService() {
   render();
 }
 
+// ============ Unmanaged Services ============
+let unmanagedServices = [];
+let unmanagedExpanded = new Set(); // expanded PIDs
+
+async function scanUnmanaged() {
+  const panel = document.getElementById('unmanagedPanel');
+  const list = document.getElementById('unmanagedList');
+  list.innerHTML = '<div style="padding:20px;color:var(--text-muted);">扫描中...</div>';
+  const result = await api('/api/unmanaged');
+  if (result.error) {
+    list.innerHTML = `<div style="padding:20px;color:var(--red);">${escapeHtml(result.error)}</div>`;
+    return;
+  }
+  unmanagedServices = result.services || [];
+  renderUnmanaged();
+}
+
+function renderUnmanaged() {
+  const list = document.getElementById('unmanagedList');
+  if (unmanagedServices.length === 0) {
+    list.innerHTML = '<div style="padding:20px;color:var(--text-muted);">✅ 没有发现未管理的服务</div>';
+    return;
+  }
+
+  list.innerHTML = unmanagedServices.map(s => {
+    const isExpanded = unmanagedExpanded.has(s.pid);
+    const portUrl = `http://localhost:${s.port}`;
+    const etimeStr = s.etime ? `<span class="unmanaged-etime">⏱ ${escapeHtml(s.etime)}</span>` : '';
+    return `
+      <div class="unmanaged-row">
+        <div class="unmanaged-row-header" onclick="toggleUnmanagedDetail(${s.pid})">
+          <div class="status-dot running"></div>
+          <span class="unmanaged-name">${escapeHtml(s.command)}</span>
+          <a href="${portUrl}" target="_blank" class="unmanaged-port" onclick="event.stopPropagation()">🔗 :${s.port}</a>
+          <span class="unmanaged-pid">PID ${s.pid}</span>
+          ${etimeStr}
+          <span class="unmanaged-user">${escapeHtml(s.user)}</span>
+          <div class="unmanaged-actions">
+            <button class="btn btn-sm" onclick="toggleUnmanagedDetail(${s.pid}); event.stopPropagation();">${isExpanded ? '收起' : '详情'}</button>
+            <button class="btn btn-sm btn-danger" onclick="killUnmanaged(${s.pid}); event.stopPropagation();">停止</button>
+          </div>
+        </div>
+        ${isExpanded ? `<div class="unmanaged-detail"><label>完整命令</label><code>${escapeHtml(s.fullCommand || s.command)}</code></div>` : ''}
+      </div>
+    `;
+  }).join('');
+}
+
+function toggleUnmanagedDetail(pid) {
+  if (unmanagedExpanded.has(pid)) unmanagedExpanded.delete(pid);
+  else unmanagedExpanded.add(pid);
+  renderUnmanaged();
+}
+
+async function killUnmanaged(pid) {
+  if (!confirm(`确定停止进程 PID ${pid}？`)) return;
+  const result = await api('/api/unmanaged/kill', 'POST', { pid });
+  if (result.error) { toast(result.error, 'error'); return; }
+  toast(`进程 ${pid} 正在停止...`, 'success');
+  // Re-scan after a short delay
+  setTimeout(scanUnmanaged, 1000);
+}
+
+function toggleUnmanagedPanel() {
+  const panel = document.getElementById('unmanagedPanel');
+  const btn = document.getElementById('unmanagedBtn');
+  if (panel.style.display === 'none') {
+    panel.style.display = 'block';
+    btn.classList.add('active');
+    scanUnmanaged();
+  } else {
+    panel.style.display = 'none';
+    btn.classList.remove('active');
+  }
+}
+
 // ============ Init ============
 async function init() {
   config = await api('/api/config');
@@ -489,6 +566,12 @@ async function init() {
 
   // Header buttons
   document.getElementById('addProjectBtn').onclick = () => showProjectModal();
+  document.getElementById('unmanagedBtn').onclick = () => toggleUnmanagedPanel();
+  document.getElementById('unmanagedRefresh').onclick = () => scanUnmanaged();
+  document.getElementById('unmanagedClose').onclick = () => {
+    document.getElementById('unmanagedPanel').style.display = 'none';
+    document.getElementById('unmanagedBtn').classList.remove('active');
+  };
 
   // Modal save buttons
   document.getElementById('saveProjectBtn').onclick = saveProject;

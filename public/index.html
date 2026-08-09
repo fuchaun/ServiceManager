@@ -14,11 +14,23 @@
       <span class="status-summary" id="statusSummary">0 / 0 运行中</span>
     </div>
     <div class="header-right">
+      <button class="btn" id="unmanagedBtn">🔍 未管理服务</button>
       <button class="btn btn-primary" id="addProjectBtn">+ 添加项目</button>
     </div>
   </header>
 
   <main id="main"></main>
+
+  <!-- Unmanaged Services Panel -->
+  <div class="unmanaged-panel" id="unmanagedPanel" style="display:none;">
+    <div class="unmanaged-header">
+      <h2>🔍 未管理服务</h2>
+      <span class="unmanaged-hint">以下为本机正在监听 TCP 端口、但不受 Service Manager 管理的进程</span>
+      <button class="btn btn-sm" id="unmanagedRefresh">🔄 刷新</button>
+      <button class="btn btn-sm" id="unmanagedClose">✕ 关闭</button>
+    </div>
+    <div id="unmanagedList"></div>
+  </div>
 
   <!-- Project Modal -->
   <div class="modal-overlay" id="projectModal">

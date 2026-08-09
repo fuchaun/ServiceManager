@@ -124,3 +124,39 @@ Unregister-ScheduledTask -TaskName "ServiceManager" -Confirm:$false
 - 这套配置只负责让 `service-manager` 自己启动，不会自动替你启动页面里的项目服务。
 - 如果 Node 是通过 `nvm`、`fnm` 之类安装的，建议先确认安装脚本能找到正确的 `node` 路径。
 - 默认监听地址仍然是 `127.0.0.1:3456`，不会对外网暴露。
+
+## 常见问题：`uv: command not found`
+
+如果某个服务命令在终端里能跑，但开机自启后报：
+
+```text
+/bin/sh: uv: command not found
+```
+
+原因通常是自启环境的 `PATH` 太短。`service-manager` 启动服务时用的是系统给它的环境，不会自动读取你交互终端里的 `~/.zshrc`、`~/.bashrc`、`~/.profile`。
+
+处理方式有两种，优先推荐第一种：
+
+1. 直接写 `uv` 的绝对路径
+
+先在你平时的终端里执行：
+
+```bash
+which uv
+```
+
+把输出的完整路径填到服务命令里，例如：
+
+```bash
+/opt/homebrew/bin/uv run --extra web python web/app.py
+```
+
+2. 给这个服务补 `PATH`
+
+在服务配置的“环境变量”里加一行：
+
+```text
+PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+```
+
+如果 `uv` 是通过 `pipx`、`cargo`、`asdf`、`pyenv` 之类装的，还要把它实际所在目录加进去。
