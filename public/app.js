@@ -240,7 +240,7 @@ function renderService(service, project) {
   return `
     <div class="service-row">
       <div class="service-header">
-        <div class="status-dot ${status.status}"></div>
+        <div class="status-dot ${isRunning ? 'running' : 'stopped'}"></div>
         <span class="service-name">${escapeHtml(service.name)}</span>
         <span class="service-command">${escapeHtml(service.command)}${envHint}</span>
         ${portBadge}

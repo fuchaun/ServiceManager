@@ -308,9 +308,10 @@ function startProcess(serviceId) {
       stderrBuf = '';
     }
 
+    const wasKilling = proc.killing;
     processes.delete(serviceId);
     saveRuntimeState();
-    const status = code === 0 ? 'stopped' : 'error';
+    const status = (code === 0 || wasKilling) ? 'stopped' : 'error';
     const exitMsg = `[Process exited — code ${code}${signal ? `, signal ${signal}` : ''}]`;
     const entry = { type: 'log', serviceId, stream: 'stderr', data: exitMsg, timestamp: Date.now() };
     broadcast(entry);
@@ -402,9 +403,9 @@ app.delete('/api/projects/:id', (req, res) => {
 app.post('/api/projects/:id/services', (req, res) => {
   const project = config.projects.find(p => p.id === req.params.id);
   if (!project) return res.status(404).json({ error: 'Not found' });
-  const { name, command, cwd, env, port } = req.body;
+  const { name, command, cwd, env, port, delayed } = req.body;
   if (!name || !command) return res.status(400).json({ error: 'Name and command required' });
-  const service = { id: crypto.randomUUID(), name, command, cwd: cwd || '', env: env || {}, port: port || '' };
+  const service = { id: crypto.randomUUID(), name, command, cwd: cwd || '', env: env || {}, port: port || '', delayed: !!delayed };
   project.services = project.services || [];
   project.services.push(service);
   saveConfig();
@@ -416,12 +417,13 @@ app.put('/api/projects/:id/services/:serviceId', (req, res) => {
   if (!project) return res.status(404).json({ error: 'Not found' });
   const service = (project.services || []).find(s => s.id === req.params.serviceId);
   if (!service) return res.status(404).json({ error: 'Service not found' });
-  const { name, command, cwd, env, port } = req.body;
+  const { name, command, cwd, env, port, delayed } = req.body;
   if (name !== undefined) service.name = name;
   if (command !== undefined) service.command = command;
   if (cwd !== undefined) service.cwd = cwd;
   if (env !== undefined) service.env = env;
   if (port !== undefined) service.port = port;
+  if (delayed !== undefined) service.delayed = !!delayed;
   saveConfig();
   res.json(service);
 });
@@ -446,7 +448,7 @@ app.post('/api/projects/:id/start-all', (req, res) => {
   const project = config.projects.find(p => p.id === req.params.id);
   if (!project) return res.status(404).json({ error: 'Not found' });
   for (const service of (project.services || [])) {
-    if (!processes.has(service.id)) startProcess(service.id);
+    if (!processes.has(service.id) && !service.delayed) startProcess(service.id);
   }
   res.json({ success: true });
 });
