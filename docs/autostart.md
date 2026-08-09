@@ -119,6 +119,24 @@ Unregister-ScheduledTask -TaskName "ServiceManager" -Confirm:$false
 前提是你已经把 `service-manager` 本身注册成系统自启，而不是只在当前终端里手动执行 `node server.js`。  
 安装成功后，当前终端关闭不会影响下次登录或开机后的自动启动。
 
+## 重启 Service Manager
+
+安装成功后，如果修改了代码或需要重启服务，不需要手动杀进程，直接用 launchctl 重启即可：
+
+```bash
+launchctl kickstart -k gui/$UID/com.service-manager
+```
+
+`-k` 表示先杀掉当前进程再重新启动。执行后面板会短暂断开，刷新页面即可恢复。
+
+Linux 对应命令：
+
+```bash
+systemctl --user restart service-manager
+```
+
+Windows 对应操作：在任务计划程序中找到 `ServiceManager` 任务，右键「运行」即可。
+
 ## 注意
 
 - 这套配置只负责让 `service-manager` 自己启动，不会自动替你启动页面里的项目服务。
