@@ -14,6 +14,7 @@
       <span class="status-summary" id="statusSummary">0 / 0 运行中</span>
     </div>
     <div class="header-right">
+      <button class="btn btn-primary" id="startAllBtn">▶ 全部运行</button>
       <button class="btn" id="unmanagedBtn">🔍 未管理服务</button>
       <button class="btn btn-primary" id="addProjectBtn">+ 添加项目</button>
     </div>
@@ -80,6 +81,12 @@
       <div class="form-group">
         <label>环境变量（可选，每行 KEY=value）</label>
         <textarea id="serviceEnv" rows="3" placeholder="PORT=3000&#10;NODE_ENV=development"></textarea>
+      </div>
+      <div class="form-group">
+        <label class="checkbox-label">
+          <input type="checkbox" id="serviceDelayed">
+          <span>延迟运行 — 标记后「全部运行」不会启动此服务，需手动单独启动</span>
+        </label>
       </div>
       <div class="quick-commands">
         <label>快速选择命令模板</label>

@@ -245,6 +245,7 @@ function renderService(service, project) {
         <span class="service-command">${escapeHtml(service.command)}${envHint}</span>
         ${portBadge}
         ${isRunning && status.pid ? `<span class="service-pid">PID ${status.pid}</span>` : ''}
+        ${service.delayed ? `<span class="delayed-badge" title="标记为延迟运行，「全部运行」不会启动此服务">⏳ 延迟</span>` : ''}
         ${isRunning && status.reattached ? `<span class="reattached-badge" title="此进程在服务管理器重启前已在运行，已自动重新接管。停止后重新启动可恢复完整日志捕获。">🔄 重接管</span>` : ''}
         <div class="service-actions">
           ${isRunning
@@ -299,6 +300,18 @@ async function startAll(projectId) {
 async function stopAllInProject(projectId) {
   await api(`/api/projects/${projectId}/stop-all`, 'POST');
   toast('正在停止所有服务...', 'info');
+}
+
+async function startAllGlobal() {
+  const result = await api('/api/start-all', 'POST');
+  if (result.error) { toast(result.error, 'error'); return; }
+  if (result.started === 0 && result.skipped === 0) {
+    toast('没有需要启动的服务', 'info');
+  } else if (result.skipped > 0) {
+    toast(`已启动 ${result.started} 个服务，跳过 ${result.skipped} 个延迟服务`, 'success');
+  } else {
+    toast(`已启动 ${result.started} 个服务`, 'success');
+  }
 }
 
 async function clearLogs(serviceId) {
@@ -403,6 +416,7 @@ function showServiceModal(projectId, serviceId = null) {
     document.getElementById('servicePort').value = service.port || '';
     document.getElementById('serviceCwd').value = service.cwd || '';
     document.getElementById('serviceEnv').value = serializeEnv(service.env);
+    document.getElementById('serviceDelayed').checked = !!service.delayed;
   } else {
     title.textContent = '添加服务';
     document.getElementById('serviceName').value = '';
@@ -410,6 +424,7 @@ function showServiceModal(projectId, serviceId = null) {
     document.getElementById('servicePort').value = '';
     document.getElementById('serviceCwd').value = '';
     document.getElementById('serviceEnv').value = '';
+    document.getElementById('serviceDelayed').checked = false;
   }
   modal.classList.add('show');
 }
@@ -456,6 +471,7 @@ async function saveService() {
   const port = document.getElementById('servicePort').value.trim();
   const cwd = document.getElementById('serviceCwd').value.trim();
   const env = parseEnv(document.getElementById('serviceEnv').value);
+  const delayed = document.getElementById('serviceDelayed').checked;
 
   if (!name) { toast('请输入服务名称', 'error'); return; }
   if (!command) { toast('请输入启动命令', 'error'); return; }
@@ -465,12 +481,12 @@ async function saveService() {
   if (!project) return;
 
   if (editingService) {
-    await api(`/api/projects/${projectId}/services/${editingService.serviceId}`, 'PUT', { name, command, cwd, env, port });
+    await api(`/api/projects/${projectId}/services/${editingService.serviceId}`, 'PUT', { name, command, cwd, env, port, delayed });
     const service = (project.services || []).find(s => s.id === editingService.serviceId);
-    if (service) { service.name = name; service.command = command; service.cwd = cwd; service.env = env; service.port = port; }
+    if (service) { service.name = name; service.command = command; service.cwd = cwd; service.env = env; service.port = port; service.delayed = delayed; }
     toast('服务已更新', 'success');
   } else {
-    const result = await api(`/api/projects/${projectId}/services`, 'POST', { name, command, cwd, env, port });
+    const result = await api(`/api/projects/${projectId}/services`, 'POST', { name, command, cwd, env, port, delayed });
     if (result.id) {
       project.services = project.services || [];
       project.services.push(result);
@@ -566,6 +582,7 @@ async function init() {
 
   // Header buttons
   document.getElementById('addProjectBtn').onclick = () => showProjectModal();
+  document.getElementById('startAllBtn').onclick = () => startAllGlobal();
   document.getElementById('unmanagedBtn').onclick = () => toggleUnmanagedPanel();
   document.getElementById('unmanagedRefresh').onclick = () => scanUnmanaged();
   document.getElementById('unmanagedClose').onclick = () => {

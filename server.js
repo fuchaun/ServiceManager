@@ -462,6 +462,20 @@ app.post('/api/projects/:id/stop-all', (req, res) => {
   res.json({ success: true });
 });
 
+app.post('/api/start-all', (_req, res) => {
+  let started = 0;
+  let skipped = 0;
+  for (const project of config.projects) {
+    for (const service of (project.services || [])) {
+      if (processes.has(service.id)) continue;
+      if (service.delayed) { skipped++; continue; }
+      startProcess(service.id);
+      started++;
+    }
+  }
+  res.json({ success: true, started, skipped });
+});
+
 app.delete('/api/services/:serviceId/logs', (req, res) => {
   logBuffers.delete(req.params.serviceId);
   broadcast({ type: 'clear', serviceId: req.params.serviceId });
