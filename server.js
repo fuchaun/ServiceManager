@@ -183,12 +183,6 @@ function stopProcess(serviceId) {
   return { success: true };
 }
 
-function killAllProcesses() {
-  for (const [serviceId] of processes) {
-    stopProcess(serviceId);
-  }
-}
-
 // ============ Express App ============
 const app = express();
 app.use(express.json());
@@ -298,11 +292,6 @@ app.post('/api/projects/:id/stop-all', (req, res) => {
   for (const service of (project.services || [])) {
     if (processes.has(service.id)) stopProcess(service.id);
   }
-  res.json({ success: true });
-});
-
-app.post('/api/stop-all', (_req, res) => {
-  killAllProcesses();
   res.json({ success: true });
 });
 

@@ -8,7 +8,7 @@
 |------|------|
 | **项目管理** | 添加/编辑/删除项目，配置项目根路径，支持 Finder 文件夹选择（macOS） |
 | **服务配置** | 每个项目下可配置多个服务，预先写好启动命令、工作目录、环境变量、端口号 |
-| **一键启停** | 单个服务启动/停止、项目内全部启动/停止、全局一键停止 |
+| **一键启停** | 单个服务启动/停止、项目内全部启动/停止（按状态智能显示） |
 | **实时日志** | WebSocket 实时推送 stdout/stderr，带时间戳，终端样式显示，收起不丢失 |
 | **状态追踪** | 运行中（绿色脉冲）/ 已停止（灰色）/ 异常退出（红色），显示 PID |
 | **端口管理** | 服务可配置端口号，运行时显示可点击链接直接打开网页，端口冲突自动检测提醒 |
@@ -68,9 +68,17 @@ node server.js
 
 ---
 
-## 设置开机自启
+## 开机自启
 
-如需开机自启，可通过 macOS **系统设置 > 通用 > 登录项** 添加一条运行 `node server.js` 的登录项即可。
+如果你希望 `service-manager` 在系统登录后自动启动，可以参考这份说明：
+
+- [开机自启配置](docs/autostart.md)
+
+仓库里也准备了对应的平台脚本：
+
+- `scripts/autostart/macos/install-launchagent.sh`
+- `scripts/autostart/linux/install-systemd-user.sh`
+- `scripts/autostart/windows/install-task.ps1`
 
 ---
 

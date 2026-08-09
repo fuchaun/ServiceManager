@@ -185,6 +185,9 @@ function renderProject(project) {
   const services = (project.services || []);
   const runningCount = services.filter(s => statuses[s.id]?.status === 'running').length;
 
+  const hasRunning = runningCount > 0;
+  const hasStopped = services.length > 0 && runningCount < services.length;
+
   const servicesHtml = services.length
     ? services.map(s => renderService(s, project)).join('')
     : `<div style="padding:20px;color:var(--text-muted);font-size:13px;">还没有服务，点击「添加服务」</div>`;
@@ -198,8 +201,8 @@ function renderProject(project) {
           ${project.path ? `<span class="project-path">${escapeHtml(project.path)}</span>` : ''}
         </div>
         <div class="project-actions">
-          <button class="btn btn-sm btn-primary" onclick="startAll('${project.id}')">全部启动</button>
-          <button class="btn btn-sm btn-danger" onclick="stopAllInProject('${project.id}')">全部停止</button>
+          ${hasStopped ? `<button class="btn btn-sm btn-primary" onclick="startAll('${project.id}')">全部启动</button>` : ''}
+          ${hasRunning ? `<button class="btn btn-sm btn-danger" onclick="stopAllInProject('${project.id}')">全部停止</button>` : ''}
           <button class="btn btn-sm" onclick="showServiceModal('${project.id}')">+ 添加服务</button>
           <button class="btn btn-sm" onclick="showProjectModal('${project.id}')">编辑</button>
           <button class="btn btn-sm" onclick="deleteProject('${project.id}')">删除</button>
@@ -294,11 +297,6 @@ async function startAll(projectId) {
 
 async function stopAllInProject(projectId) {
   await api(`/api/projects/${projectId}/stop-all`, 'POST');
-  toast('正在停止所有服务...', 'info');
-}
-
-async function stopAll() {
-  await api('/api/stop-all', 'POST');
   toast('正在停止所有服务...', 'info');
 }
 
@@ -491,7 +489,6 @@ async function init() {
 
   // Header buttons
   document.getElementById('addProjectBtn').onclick = () => showProjectModal();
-  document.getElementById('stopAllBtn').onclick = () => stopAll();
 
   // Modal save buttons
   document.getElementById('saveProjectBtn').onclick = saveProject;
