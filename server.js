@@ -248,7 +248,8 @@ function startProcess(serviceId) {
     return { error: 'Failed to spawn process' };
   }
 
-  processes.set(serviceId, { child, pid: child.pid, startedAt: Date.now() });
+  const proc = { child, pid: child.pid, startedAt: Date.now() };
+  processes.set(serviceId, proc);
   if (!logBuffers.has(serviceId)) logBuffers.set(serviceId, []);
   saveRuntimeState();
 
