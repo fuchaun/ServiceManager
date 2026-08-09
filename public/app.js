@@ -6,6 +6,7 @@ const expandedServices = new Set();
 let editingProjectId = null;
 let editingService = null; // { projectId, serviceId }
 let currentProjectIdForService = null;
+let hiddenProjectsExpanded = false;
 
 // ============ API ============
 async function api(url, method = 'GET', body = null) {
@@ -170,7 +171,26 @@ function render() {
     return;
   }
 
-  main.innerHTML = config.projects.map(p => renderProject(p)).join('');
+  const visibleProjects = config.projects.filter(p => !p.hidden);
+  const hiddenProjects = config.projects.filter(p => p.hidden);
+
+  let html = visibleProjects.map(p => renderProject(p)).join('');
+
+  if (hiddenProjects.length > 0) {
+    const expandIcon = hiddenProjectsExpanded ? '▼' : '▶';
+    html += `
+      <div class="hidden-projects-section">
+        <div class="hidden-projects-header" onclick="toggleHiddenProjects()">
+          <span class="hidden-projects-toggle">${expandIcon}</span>
+          <span class="hidden-projects-title">📦 已隐藏的项目 (${hiddenProjects.length})</span>
+          <span class="hidden-projects-hint">点击展开</span>
+        </div>
+        ${hiddenProjectsExpanded ? hiddenProjects.map(p => renderProject(p, true)).join('') : ''}
+      </div>
+    `;
+  }
+
+  main.innerHTML = html;
 
   // Restore terminal contents after re-render
   for (const [id, html] of Object.entries(savedTerminals)) {
@@ -181,7 +201,7 @@ function render() {
   updateStatusSummary();
 }
 
-function renderProject(project) {
+function renderProject(project, isHidden = false) {
   const services = (project.services || []);
   const runningCount = services.filter(s => statuses[s.id]?.status === 'running').length;
 
@@ -193,7 +213,7 @@ function renderProject(project) {
     : `<div style="padding:20px;color:var(--text-muted);font-size:13px;">还没有服务，点击「添加服务」</div>`;
 
   return `
-    <div class="project-section">
+    <div class="project-section${isHidden ? ' project-hidden' : ''}">
       <div class="project-header">
         <div class="project-title">
           <h2>📁 ${escapeHtml(project.name)}</h2>
@@ -205,6 +225,10 @@ function renderProject(project) {
           ${hasRunning ? `<button class="btn btn-sm btn-danger" onclick="stopAllInProject('${project.id}')">全部停止</button>` : ''}
           <button class="btn btn-sm" onclick="showServiceModal('${project.id}')">+ 添加服务</button>
           <button class="btn btn-sm" onclick="showProjectModal('${project.id}')">编辑</button>
+          ${isHidden
+            ? `<button class="btn btn-sm" onclick="unhideProject('${project.id}')">显示</button>`
+            : `<button class="btn btn-sm" onclick="hideProject('${project.id}')">隐藏</button>`
+          }
           <button class="btn btn-sm" onclick="deleteProject('${project.id}')">删除</button>
         </div>
       </div>
@@ -378,6 +402,29 @@ function findServiceById(serviceId) {
     }
   }
   return null;
+}
+
+async function hideProject(projectId) {
+  const result = await api(`/api/projects/${projectId}/toggle-hidden`, 'POST');
+  if (result.error) { toast(result.error, 'error'); return; }
+  const project = config.projects.find(p => p.id === projectId);
+  if (project) project.hidden = true;
+  render();
+  toast(`项目「${project?.name || ''}」已隐藏`, 'info');
+}
+
+async function unhideProject(projectId) {
+  const result = await api(`/api/projects/${projectId}/toggle-hidden`, 'POST');
+  if (result.error) { toast(result.error, 'error'); return; }
+  const project = config.projects.find(p => p.id === projectId);
+  if (project) project.hidden = false;
+  render();
+  toast(`项目「${project?.name || ''}」已显示`, 'success');
+}
+
+function toggleHiddenProjects() {
+  hiddenProjectsExpanded = !hiddenProjectsExpanded;
+  render();
 }
 
 // ============ Modals ============

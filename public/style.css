@@ -532,6 +532,52 @@ a.service-port:hover {
   color: var(--accent);
 }
 
+/* ===== Hidden Projects Section ===== */
+.hidden-projects-section {
+  margin-top: 8px;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.hidden-projects-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 18px;
+  background: var(--bg-card);
+  cursor: pointer;
+  transition: background 0.15s;
+  user-select: none;
+}
+.hidden-projects-header:hover { background: var(--bg-hover); }
+
+.hidden-projects-toggle {
+  font-size: 12px;
+  color: var(--text-muted);
+  width: 16px;
+  text-align: center;
+}
+
+.hidden-projects-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-dim);
+}
+
+.hidden-projects-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-left: auto;
+}
+
+.project-hidden {
+  opacity: 0.75;
+}
+.project-hidden .project-header {
+  background: var(--bg);
+}
+
 /* ===== Responsive ===== */
 @media (max-width: 768px) {
   header { flex-direction: column; gap: 10px; align-items: stretch; }

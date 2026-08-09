@@ -370,7 +370,7 @@ app.get('/api/statuses', (_req, res) => {
 app.post('/api/projects', (req, res) => {
   const { name, path: projectPath } = req.body;
   if (!name) return res.status(400).json({ error: 'Name required' });
-  const project = { id: crypto.randomUUID(), name, path: projectPath || '', services: [] };
+  const project = { id: crypto.randomUUID(), name, path: projectPath || '', services: [], hidden: false };
   config.projects.push(project);
   saveConfig();
   res.json(project);
@@ -379,9 +379,10 @@ app.post('/api/projects', (req, res) => {
 app.put('/api/projects/:id', (req, res) => {
   const project = config.projects.find(p => p.id === req.params.id);
   if (!project) return res.status(404).json({ error: 'Not found' });
-  const { name, path: projectPath } = req.body;
+  const { name, path: projectPath, hidden } = req.body;
   if (name !== undefined) project.name = name;
   if (projectPath !== undefined) project.path = projectPath;
+  if (hidden !== undefined) project.hidden = !!hidden;
   saveConfig();
   res.json(project);
 });
@@ -398,6 +399,14 @@ app.delete('/api/projects/:id', (req, res) => {
   config.projects = config.projects.filter(p => p.id !== req.params.id);
   saveConfig();
   res.json({ success: true });
+});
+
+app.post('/api/projects/:id/toggle-hidden', (req, res) => {
+  const project = config.projects.find(p => p.id === req.params.id);
+  if (!project) return res.status(404).json({ error: 'Not found' });
+  project.hidden = !project.hidden;
+  saveConfig();
+  res.json({ success: true, hidden: project.hidden });
 });
 
 // --- Service CRUD ---
@@ -467,6 +476,7 @@ app.post('/api/start-all', (_req, res) => {
   let started = 0;
   let skipped = 0;
   for (const project of config.projects) {
+    if (project.hidden) continue;
     for (const service of (project.services || [])) {
       if (processes.has(service.id)) continue;
       if (service.delayed) { skipped++; continue; }
