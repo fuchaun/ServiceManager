@@ -414,8 +414,8 @@ app.post('/api/projects/:id/services', (req, res) => {
   const project = config.projects.find(p => p.id === req.params.id);
   if (!project) return res.status(404).json({ error: 'Not found' });
   const { name, command, cwd, env, port, delayed } = req.body;
-  if (!name || !command) return res.status(400).json({ error: 'Name and command required' });
-  const service = { id: crypto.randomUUID(), name, command, cwd: cwd || '', env: env || {}, port: port || '', delayed: !!delayed };
+  if (!command) return res.status(400).json({ error: 'Command required' });
+  const service = { id: crypto.randomUUID(), name: name || '', command, cwd: cwd || '', env: env || {}, port: port || '', delayed: !!delayed };
   project.services = project.services || [];
   project.services.push(service);
   saveConfig();

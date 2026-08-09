@@ -243,6 +243,11 @@ main { max-width: 1400px; margin: 0 auto; padding: 24px; }
   font-size: 14px;
   min-width: 110px;
 }
+.service-name-empty {
+  color: var(--text-muted);
+  font-style: italic;
+  font-weight: 400;
+}
 
 .service-command {
   font-family: 'SF Mono', Monaco, monospace;

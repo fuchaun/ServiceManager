@@ -281,7 +281,7 @@ function renderService(service, project) {
     <div class="service-row">
       <div class="service-header">
         <div class="status-dot ${isRunning ? 'running' : 'stopped'}"></div>
-        <span class="service-name">${escapeHtml(service.name)}</span>
+        <span class="service-name">${service.name ? escapeHtml(service.name) : '<span class="service-name-empty">未命名</span>'}</span>
         <span class="service-command">${escapeHtml(service.command)}${envHint}</span>
         ${portBadge}
         ${isRunning && status.pid ? `<span class="service-pid">PID ${status.pid}</span>` : ''}
@@ -402,7 +402,7 @@ async function deleteService(projectId, serviceId) {
     return;
   }
 
-  if (!confirm(`确定删除服务「${service.name}」？`)) return;
+  if (!confirm(`确定删除服务「${service.name || service.command}」？`)) return;
   const result = await api(`/api/projects/${projectId}/services/${serviceId}`, 'DELETE');
   if (result.error) { toast(result.error, 'error'); return; }
   project.services = project.services.filter(s => s.id !== serviceId);
@@ -537,7 +537,6 @@ async function saveService() {
   const env = parseEnv(document.getElementById('serviceEnv').value);
   const delayed = document.getElementById('serviceDelayed').checked;
 
-  if (!name) { toast('请输入服务名称', 'error'); return; }
   if (!command) { toast('请输入启动命令', 'error'); return; }
 
   const projectId = currentProjectIdForService;
