@@ -161,6 +161,10 @@ function stopProcess(serviceId) {
   const proc = processes.get(serviceId);
   if (!proc) return { error: 'Not running' };
 
+  // Avoid duplicate SIGTERM / SIGKILL timers
+  if (proc.killing) return { error: 'Already stopping' };
+  proc.killing = true;
+
   try {
     process.kill(-proc.pid, 'SIGTERM');
   } catch {

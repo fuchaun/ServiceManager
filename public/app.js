@@ -277,7 +277,6 @@ async function startService(serviceId) {
   if (result.error) toast(result.error, 'error');
   else {
     statuses[serviceId] = { status: 'running', pid: result.pid };
-    render();
     expandedServices.add(serviceId);
     render();
   }

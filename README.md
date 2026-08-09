@@ -32,9 +32,6 @@
 ├── server.js                              # 后端：Express API + WebSocket + 进程管理
 ├── package.json                           # 依赖配置
 ├── package-lock.json                      # 依赖锁定
-├── config.example.json                    # 配置文件模板
-├── com.service-manager.plist.example      # launchd 配置文件模板（macOS 开机自启用）
-├── setup-autostart.sh                     # macOS 开机自启安装/卸载脚本
 ├── .gitignore                             # Git 忽略规则
 ├── logs/                                  # 运行日志目录（运行后自动创建）
 └── public/
@@ -52,15 +49,7 @@ cd service-manager
 npm install
 ```
 
-### 2. 准备配置文件
-
-```bash
-cp config.example.json config.json
-```
-
-然后编辑 `config.json`，填入你的项目和服务配置。
-
-### 3. 启动服务
+### 2. 启动服务
 
 ```bash
 node server.js
@@ -68,7 +57,7 @@ node server.js
 
 浏览器打开 `http://localhost:3456` 即可使用。
 
-### 4. 使用流程
+### 3. 使用流程
 
 1. 点击「+ 添加项目」，填写项目名称和路径（macOS 下可点击 📁 按钮用 Finder 选择）
 2. 在项目下点击「+ 添加服务」，填写服务名称、启动命令、端口号
@@ -79,79 +68,9 @@ node server.js
 
 ---
 
-## 设置开机自启（macOS 常驻后台）
+## 设置开机自启
 
-使用 macOS 的 `launchd` 实现开机自启 + 崩溃自动重启。
-
-### 安装
-
-先准备好 plist 配置文件：
-
-```bash
-cp com.service-manager.plist.example com.service-manager.plist
-```
-
-编辑 `com.service-manager.plist`，将以下两项改为你的实际路径：
-- `ProgramArguments` 中的 node 路径（运行 `which node` 查看）
-- `WorkingDirectory` / `StandardOutPath` / `StandardErrorPath` 中的项目路径
-
-然后打开终端，运行：
-
-```bash
-bash setup-autostart.sh
-```
-
-脚本会自动完成以下操作：
-
-1. 将 LaunchAgent 配置安装到 `~/Library/LaunchAgents/`
-2. 用 `launchctl` 加载服务
-3. 开启 `RunAtLoad`（开机自启）和 `KeepAlive`（崩溃自动重启）
-4. 验证服务状态
-
-安装成功后，服务地址：`http://localhost:3456`
-
-### 备用方案：登录项（macOS）
-
-如果脚本提示 `launchctl` 加载失败，可以手动添加：
-
-1. 使用 Automator 创建一个应用程序，运行以下 Shell 脚本：
-   ```
-   cd /path/to/service-manager && node server.js
-   ```
-2. 打开 **系统设置 > 通用 > 登录项**
-3. 将创建的应用程序拖入登录项
-
-### 常用管理命令
-
-```bash
-# 查看服务状态
-launchctl list com.service-manager
-
-# 手动停止服务
-launchctl kill TERM gui/$(id -u)/com.service-manager
-
-# 查看运行日志
-tail -f logs/stdout.log
-tail -f logs/stderr.log
-```
-
----
-
-## 卸载开机自启
-
-打开终端，运行：
-
-```bash
-bash setup-autostart.sh --uninstall
-```
-
-脚本会自动完成以下操作：
-
-1. 卸载 `launchctl` 中的服务条目
-2. 删除 `~/Library/LaunchAgents/com.service-manager.plist`
-3. 确认已移除开机自启
-
-如果之前用的是登录项方式，还需手动到 **系统设置 > 通用 > 登录项** 中移除对应的应用程序。
+如需开机自启，可通过 macOS **系统设置 > 通用 > 登录项** 添加一条运行 `node server.js` 的登录项即可。
 
 ---
 
