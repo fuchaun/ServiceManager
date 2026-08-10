@@ -43,6 +43,13 @@ bash scripts/autostart/macos/install-launchagent.sh
 ~/Library/LaunchAgents/com.service-manager.plist
 ```
 
+日志会写到：
+
+```text
+~/Library/Logs/service-manager/service-manager.out.log
+~/Library/Logs/service-manager/service-manager.err.log
+```
+
 3. 安装后可用下面命令查看状态：
 
 ```bash

@@ -6,7 +6,7 @@ REPO_DIR="$(CDPATH= cd -- "${SCRIPT_DIR}/../../.." && pwd)"
 NODE_BIN="$(command -v node || true)"
 LABEL="com.service-manager"
 PLIST_PATH="$HOME/Library/LaunchAgents/${LABEL}.plist"
-LOG_DIR="$REPO_DIR/logs"
+LOG_DIR="$HOME/Library/Logs/service-manager"
 
 if [ -z "$NODE_BIN" ]; then
   echo "node not found in PATH"
