@@ -12,6 +12,8 @@ const CONFIG_FILE = path.join(__dirname, 'config.json');
 const LOGS_DIR = path.join(__dirname, 'logs');
 const RUNTIME_STATE_FILE = path.join(LOGS_DIR, 'runtime-state.json');
 const MAX_LOG_LINES = 500;
+const APP_VERSION = require('./package.json').version;
+const STARTED_AT = Date.now();
 
 // ============ State ============
 let config = { projects: [] };
@@ -61,6 +63,165 @@ function addToBuffer(serviceId, entry) {
 
 function ensureLogsDir() {
   if (!fs.existsSync(LOGS_DIR)) fs.mkdirSync(LOGS_DIR, { recursive: true });
+}
+
+function readJsonFile(file) {
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf-8'));
+  } catch {
+    return null;
+  }
+}
+
+function fileExists(file) {
+  try {
+    return fs.existsSync(file);
+  } catch {
+    return false;
+  }
+}
+
+function detectPortFromCommand(command) {
+  const patterns = [
+    /\bPORT=(\d{2,5})\b/i,
+    /\b--port[=\s]+(\d{2,5})\b/i,
+    /\b-p\s+(\d{2,5})\b/i,
+    /\b:(\d{2,5})\b/,
+    /\b(?:localhost|127\.0\.0\.1):(\d{2,5})\b/i,
+  ];
+  for (const pattern of patterns) {
+    const m = command.match(pattern);
+    if (m) return m[1];
+  }
+  return '';
+}
+
+function packageManagerFor(dir) {
+  if (fileExists(path.join(dir, 'pnpm-lock.yaml'))) return 'pnpm';
+  if (fileExists(path.join(dir, 'yarn.lock'))) return 'yarn';
+  if (fileExists(path.join(dir, 'bun.lockb')) || fileExists(path.join(dir, 'bun.lock'))) return 'bun';
+  return 'npm';
+}
+
+function serviceCandidate(name, command, cwd, reason, options = {}) {
+  return {
+    name,
+    command,
+    cwd,
+    env: options.env || {},
+    port: options.port || detectPortFromCommand(command),
+    delayed: !!options.delayed,
+    reason,
+  };
+}
+
+function addUniqueCandidate(candidates, candidate) {
+  const key = `${candidate.cwd}\0${candidate.command}`;
+  if (!candidates.some(s => `${s.cwd}\0${s.command}` === key)) {
+    candidates.push(candidate);
+  }
+}
+
+function detectServicesInDir(rootDir, dir) {
+  const rel = path.relative(rootDir, dir);
+  const cwd = rel ? './' + rel : '';
+  const label = rel ? path.basename(dir) : path.basename(rootDir);
+  const candidates = [];
+
+  const pkg = readJsonFile(path.join(dir, 'package.json'));
+  if (pkg && pkg.scripts) {
+    const manager = packageManagerFor(dir);
+    const scriptPriority = ['dev', 'start', 'server', 'preview'];
+    for (const scriptName of scriptPriority) {
+      if (!pkg.scripts[scriptName]) continue;
+      const scriptCommand = `${manager} run ${scriptName}`;
+      addUniqueCandidate(candidates, serviceCandidate(
+        scriptName === 'dev' ? `${label} dev` : `${label} ${scriptName}`,
+        scriptCommand,
+        cwd,
+        `package.json scripts.${scriptName}: ${pkg.scripts[scriptName]}`,
+        { port: detectPortFromCommand(pkg.scripts[scriptName]) }
+      ));
+    }
+  }
+
+  const composeFile = ['compose.yaml', 'compose.yml', 'docker-compose.yaml', 'docker-compose.yml']
+    .find(file => fileExists(path.join(dir, file)));
+  if (composeFile) {
+    addUniqueCandidate(candidates, serviceCandidate(`${label} docker`, 'docker compose up', cwd, composeFile));
+  }
+
+  if (fileExists(path.join(dir, 'manage.py'))) {
+    addUniqueCandidate(candidates, serviceCandidate(`${label} Django`, 'python manage.py runserver', cwd, 'manage.py'));
+  }
+
+  const requirements = fileExists(path.join(dir, 'requirements.txt'))
+    ? fs.readFileSync(path.join(dir, 'requirements.txt'), 'utf-8').toLowerCase()
+    : '';
+  const pyproject = fileExists(path.join(dir, 'pyproject.toml'))
+    ? fs.readFileSync(path.join(dir, 'pyproject.toml'), 'utf-8').toLowerCase()
+    : '';
+  const hasFlask = requirements.includes('flask') || pyproject.includes('flask');
+  const hasStreamlit = requirements.includes('streamlit') || pyproject.includes('streamlit');
+  const hasGradio = requirements.includes('gradio') || pyproject.includes('gradio');
+  if (hasFlask && (fileExists(path.join(dir, 'app.py')) || fileExists(path.join(dir, 'wsgi.py')))) {
+    addUniqueCandidate(candidates, serviceCandidate(`${label} Flask`, 'python -m flask run --debug', cwd, 'Flask dependency'));
+  }
+  if (hasStreamlit) {
+    const streamlitFile = ['app.py', 'main.py', 'streamlit_app.py'].find(file => fileExists(path.join(dir, file))) || 'app.py';
+    addUniqueCandidate(candidates, serviceCandidate(`${label} Streamlit`, `streamlit run ${streamlitFile}`, cwd, 'Streamlit dependency'));
+  }
+  if (hasGradio) {
+    const gradioFile = ['app.py', 'main.py'].find(file => fileExists(path.join(dir, file))) || 'app.py';
+    addUniqueCandidate(candidates, serviceCandidate(`${label} Gradio`, `python ${gradioFile}`, cwd, 'Gradio dependency'));
+  }
+
+  if (fileExists(path.join(dir, 'go.mod'))) {
+    addUniqueCandidate(candidates, serviceCandidate(`${label} Go`, 'go run .', cwd, 'go.mod'));
+  }
+  if (fileExists(path.join(dir, 'Cargo.toml'))) {
+    addUniqueCandidate(candidates, serviceCandidate(`${label} Rust`, 'cargo run', cwd, 'Cargo.toml'));
+  }
+  if (fileExists(path.join(dir, 'pom.xml'))) {
+    addUniqueCandidate(candidates, serviceCandidate(`${label} Maven`, 'mvn spring-boot:run', cwd, 'pom.xml'));
+  }
+  if (fileExists(path.join(dir, 'gradlew'))) {
+    addUniqueCandidate(candidates, serviceCandidate(`${label} Gradle`, './gradlew bootRun', cwd, 'gradlew'));
+  } else if (fileExists(path.join(dir, 'build.gradle')) || fileExists(path.join(dir, 'build.gradle.kts'))) {
+    addUniqueCandidate(candidates, serviceCandidate(`${label} Gradle`, 'gradle bootRun', cwd, 'build.gradle'));
+  }
+
+  return candidates;
+}
+
+function scanProjectDirectory(projectPath) {
+  const rootDir = path.resolve(projectPath || '');
+  const stat = fs.statSync(rootDir);
+  if (!stat.isDirectory()) throw new Error('请选择有效的文件夹');
+
+  const ignoredDirs = new Set([
+    '.git', '.next', '.nuxt', '.turbo', '.cache', 'node_modules',
+    'dist', 'build', 'coverage', '.venv', 'venv', '__pycache__',
+  ]);
+  const dirs = [rootDir];
+  for (const entry of fs.readdirSync(rootDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    if (entry.name.startsWith('.') || ignoredDirs.has(entry.name)) continue;
+    dirs.push(path.join(rootDir, entry.name));
+  }
+
+  const services = [];
+  for (const dir of dirs.slice(0, 40)) {
+    for (const candidate of detectServicesInDir(rootDir, dir)) {
+      addUniqueCandidate(services, candidate);
+    }
+  }
+
+  return {
+    name: path.basename(rootDir),
+    path: rootDir,
+    services,
+  };
 }
 
 // ============ Runtime State Persistence ============
@@ -505,6 +666,17 @@ const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
+app.get('/api/health', (_req, res) => {
+  res.json({
+    ok: true,
+    version: APP_VERSION,
+    pid: process.pid,
+    startedAt: STARTED_AT,
+    host: HOST,
+    port: PORT,
+  });
+});
+
 // --- Config ---
 app.get('/api/config', (_req, res) => res.json(config));
 
@@ -521,6 +693,43 @@ app.post('/api/projects', (req, res) => {
   const { name, path: projectPath } = req.body;
   if (!name) return res.status(400).json({ error: 'Name required' });
   const project = { id: crypto.randomUUID(), name, path: projectPath || '', services: [], hidden: false };
+  config.projects.push(project);
+  saveConfig();
+  res.json(project);
+});
+
+app.post('/api/projects/scan', (req, res) => {
+  try {
+    const result = scanProjectDirectory(req.body.path);
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post('/api/projects/import-scan', (req, res) => {
+  const { name, path: projectPath, services } = req.body;
+  if (!name) return res.status(400).json({ error: 'Name required' });
+  if (!projectPath) return res.status(400).json({ error: 'Path required' });
+  if (!Array.isArray(services)) return res.status(400).json({ error: 'Services required' });
+
+  const project = {
+    id: crypto.randomUUID(),
+    name,
+    path: projectPath,
+    services: services
+      .filter(s => s && s.command)
+      .map(s => ({
+        id: crypto.randomUUID(),
+        name: s.name || '',
+        command: s.command,
+        cwd: s.cwd || '',
+        env: s.env || {},
+        port: s.port || '',
+        delayed: !!s.delayed,
+      })),
+    hidden: false,
+  };
   config.projects.push(project);
   saveConfig();
   res.json(project);

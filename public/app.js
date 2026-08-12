@@ -1,12 +1,14 @@
 // ============ State ============
 let config = { projects: [] };
 let statuses = {};
+let appHealth = null;
 let ws = null;
 const expandedServices = new Set();
 let editingProjectId = null;
 let editingService = null; // { projectId, serviceId }
 let currentProjectIdForService = null;
 let hiddenProjectsExpanded = false;
+let scanResult = null;
 
 // ============ Icons ============
 const ICONS = {
@@ -59,7 +61,12 @@ async function api(url, method = 'GET', body = null) {
   try {
     data = text ? JSON.parse(text) : {};
   } catch {
-    data = { error: text || `请求失败 (${res.status})` };
+    const routeMismatch = /Cannot (GET|POST|PUT|DELETE) \/api\//.test(text);
+    data = {
+      error: routeMismatch
+        ? '当前页面和后台服务版本不一致，请重启 Service Manager 后刷新页面'
+        : text || `请求失败 (${res.status})`,
+    };
   }
   if (!res.ok && !data.error) data.error = `请求失败 (${res.status})`;
   return data;
@@ -85,6 +92,10 @@ function parseEnv(text) {
 
 function serializeEnv(env) {
   return Object.entries(env || {}).map(([k, v]) => `${k}=${v}`).join('\n');
+}
+
+function basename(filePath) {
+  return (filePath || '').replace(/\/+$/, '').split('/').pop() || filePath || '';
 }
 
 function formatTime(ts) {
@@ -198,7 +209,8 @@ function getPortConflicts() {
 
 // ============ Render ============
 function render() {
-  const main = document.getElementById('main');
+  const projectsList = document.getElementById('projectsList');
+  const hiddenProjectsList = document.getElementById('hiddenProjectsList');
 
   // Save terminal contents before re-render to prevent log loss
   const savedTerminals = {};
@@ -209,13 +221,14 @@ function render() {
   });
 
   if (config.projects.length === 0) {
-    main.innerHTML = `
+    projectsList.innerHTML = `
       <div class="empty-state">
         <div class="icon">📦</div>
         <p>还没有项目，点击右上角「添加项目」开始配置</p>
         <button class="btn btn-primary" onclick="showProjectModal()">+ 添加项目</button>
       </div>
     `;
+    hiddenProjectsList.innerHTML = '';
     updateStatusSummary();
     return;
   }
@@ -223,23 +236,30 @@ function render() {
   const visibleProjects = config.projects.filter(p => !p.hidden);
   const hiddenProjects = config.projects.filter(p => p.hidden);
 
-  let html = visibleProjects.map(p => renderProject(p)).join('');
+  projectsList.innerHTML = visibleProjects.length
+    ? visibleProjects.map(p => renderProject(p)).join('')
+    : `
+      <div class="empty-state compact">
+        <p>没有显示中的项目</p>
+        <button class="btn btn-primary" onclick="showProjectModal()">+ 添加项目</button>
+      </div>
+    `;
 
   if (hiddenProjects.length > 0) {
     const expandIcon = hiddenProjectsExpanded ? '▼' : '▶';
-    html += `
+    hiddenProjectsList.innerHTML = `
       <div class="hidden-projects-section">
         <div class="hidden-projects-header" onclick="toggleHiddenProjects()">
           <span class="hidden-projects-toggle">${expandIcon}</span>
           <span class="hidden-projects-title">📦 已隐藏的项目 (${hiddenProjects.length})</span>
-          <span class="hidden-projects-hint">点击展开</span>
+          <span class="hidden-projects-hint">${hiddenProjectsExpanded ? '点击折叠' : '点击展开'}</span>
         </div>
         ${hiddenProjectsExpanded ? hiddenProjects.map(p => renderProject(p, true)).join('') : ''}
       </div>
     `;
+  } else {
+    hiddenProjectsList.innerHTML = '';
   }
-
-  main.innerHTML = html;
 
   // Restore terminal contents after re-render
   for (const [id, html] of Object.entries(savedTerminals)) {
@@ -556,6 +576,12 @@ async function openFolderPicker(targetId) {
   }
 }
 
+async function pickFolder(startDir = '') {
+  const url = startDir ? `/api/folder-picker?dir=${encodeURIComponent(startDir)}` : '/api/folder-picker';
+  const result = await api(url);
+  return result.path || '';
+}
+
 async function saveProject() {
   const name = document.getElementById('projectName').value.trim();
   const projectPath = document.getElementById('projectPath').value.trim();
@@ -607,6 +633,75 @@ async function saveService() {
   render();
 }
 
+// ============ Project Scanner ============
+async function scanProjectFromFolder() {
+  toast('请在弹出的 Finder 窗口中选择要扫描的项目文件夹...', 'info');
+  const selectedPath = await pickFolder();
+  if (!selectedPath) return;
+
+  const result = await api('/api/projects/scan', 'POST', { path: selectedPath });
+  if (result.error) { toast(result.error, 'error'); return; }
+  scanResult = result;
+  showScanModal(result);
+}
+
+function showScanModal(result) {
+  document.getElementById('scanProjectName').value = result.name || basename(result.path);
+  document.getElementById('scanProjectPath').textContent = result.path || '';
+  renderScanServices();
+  document.getElementById('scanModal').classList.add('show');
+}
+
+function renderScanServices() {
+  const services = scanResult?.services || [];
+  const summary = document.getElementById('scanSummary');
+  const list = document.getElementById('scanServices');
+  summary.textContent = services.length > 0
+    ? `发现 ${services.length} 个可能的服务，请确认后导入`
+    : '没有自动识别到服务，可以先导入空项目后手动添加服务';
+
+  if (services.length === 0) {
+    list.innerHTML = '<div class="scan-empty">未发现 package.json、Docker Compose、Python、Go、Rust 或 Java 启动入口。</div>';
+    return;
+  }
+
+  list.innerHTML = services.map((service, index) => `
+    <label class="scan-service-row">
+      <input type="checkbox" class="scan-service-check" data-index="${index}" checked>
+      <img class="service-icon" src="${detectTechIcon(service.command)}" alt="" onerror="this.src='/icons/tech/generic.svg'">
+      <span class="scan-service-main">
+        <span class="scan-service-name">${escapeHtml(service.name)}</span>
+        <code>${escapeHtml(service.command)}</code>
+        <small>${escapeHtml(service.reason || '')}</small>
+      </span>
+      ${service.cwd ? `<span class="scan-service-cwd">${escapeHtml(service.cwd)}</span>` : ''}
+      ${service.port ? `<span class="service-port">:${escapeHtml(service.port)}</span>` : ''}
+    </label>
+  `).join('');
+}
+
+async function importScanResult() {
+  if (!scanResult) return;
+  const name = document.getElementById('scanProjectName').value.trim();
+  if (!name) { toast('请输入项目名称', 'error'); return; }
+
+  const selected = [...document.querySelectorAll('.scan-service-check:checked')]
+    .map(input => scanResult.services[parseInt(input.dataset.index)])
+    .filter(Boolean);
+
+  const result = await api('/api/projects/import-scan', 'POST', {
+    name,
+    path: scanResult.path,
+    services: selected,
+  });
+  if (result.error) { toast(result.error, 'error'); return; }
+  config.projects.push(result);
+  closeModal('scanModal');
+  scanResult = null;
+  render();
+  toast(`已导入项目「${name}」`, 'success');
+}
+
 // ============ Unmanaged Services ============
 let unmanagedServices = [];
 let unmanagedExpanded = new Set(); // expanded PIDs
@@ -614,7 +709,6 @@ let knownUnmanagedExpanded = false;
 let editingNotePid = null; // PID currently being note-edited
 
 async function scanUnmanaged() {
-  const panel = document.getElementById('unmanagedPanel');
   const list = document.getElementById('unmanagedList');
   list.innerHTML = '<div style="padding:20px;color:var(--text-muted);">扫描中...</div>';
   const result = await api('/api/unmanaged');
@@ -635,6 +729,13 @@ function renderUnmanaged() {
 
   const activeServices = unmanagedServices.filter(s => !s.hidden);
   const knownServices = unmanagedServices.filter(s => s.hidden);
+  const summaryHtml = `
+    <div class="unmanaged-summary">
+      <span>需要关注 ${activeServices.length} 个</span>
+      <span>已知 ${knownServices.length} 个</span>
+      ${activeServices.length > 0 ? `<button class="btn btn-sm" onclick="hideAllVisibleUnmanaged()">全部折叠为已知</button>` : ''}
+    </div>
+  `;
   const activeHtml = activeServices.length
     ? activeServices.map(s => renderUnmanagedRow(s)).join('')
     : '<div style="padding:20px;color:var(--text-muted);">没有需要关注的未管理服务</div>';
@@ -651,7 +752,7 @@ function renderUnmanaged() {
     `
     : '';
 
-  list.innerHTML = activeHtml + knownHtml;
+  list.innerHTML = summaryHtml + activeHtml + knownHtml;
 
   // Focus the note input when entering edit mode
   if (editingNotePid !== null) {
@@ -751,6 +852,26 @@ async function setUnmanagedKnown(key, hidden) {
   toast(hidden ? '已折叠到已知服务' : '已放回未管理服务', hidden ? 'info' : 'success');
 }
 
+async function hideAllVisibleUnmanaged() {
+  const activeServices = unmanagedServices.filter(s => !s.hidden);
+  if (activeServices.length === 0) return;
+  if (!confirm(`确定把当前 ${activeServices.length} 个未管理服务全部折叠到已知服务？`)) return;
+
+  let changed = 0;
+  for (const s of activeServices) {
+    const result = await api('/api/unmanaged/hidden', 'POST', { key: s.hiddenKey, hidden: true });
+    if (result.error) {
+      toast(result.error, 'error');
+      break;
+    }
+    s.hidden = true;
+    changed++;
+  }
+  knownUnmanagedExpanded = true;
+  renderUnmanaged();
+  toast(`已折叠 ${changed} 个服务`, 'success');
+}
+
 async function killUnmanaged(pid) {
   if (!confirm(`确定停止进程 PID ${pid}？`)) return;
   const result = await api('/api/unmanaged/kill', 'POST', { pid });
@@ -760,39 +881,34 @@ async function killUnmanaged(pid) {
   setTimeout(scanUnmanaged, 1000);
 }
 
-function toggleUnmanagedPanel() {
-  const panel = document.getElementById('unmanagedPanel');
-  const btn = document.getElementById('unmanagedBtn');
-  if (panel.style.display === 'none') {
-    panel.style.display = 'block';
-    btn.classList.add('active');
-    scanUnmanaged();
-  } else {
-    panel.style.display = 'none';
-    btn.classList.remove('active');
-  }
-}
-
 // ============ Init ============
 async function init() {
+  appHealth = await api('/api/health');
+  if (appHealth.error) toast(appHealth.error, 'error');
   config = await api('/api/config');
+  if (config.error) {
+    toast(config.error, 'error');
+    config = { projects: [] };
+  }
   statuses = await api('/api/statuses');
+  if (statuses.error) {
+    toast(statuses.error, 'error');
+    statuses = {};
+  }
   render();
   connectWebSocket();
 
   // Header buttons
   document.getElementById('addProjectBtn').onclick = () => showProjectModal();
+  document.getElementById('scanProjectBtn').onclick = () => scanProjectFromFolder();
   document.getElementById('startAllBtn').onclick = () => startAllGlobal();
-  document.getElementById('unmanagedBtn').onclick = () => toggleUnmanagedPanel();
   document.getElementById('unmanagedRefresh').onclick = () => scanUnmanaged();
-  document.getElementById('unmanagedClose').onclick = () => {
-    document.getElementById('unmanagedPanel').style.display = 'none';
-    document.getElementById('unmanagedBtn').classList.remove('active');
-  };
+  scanUnmanaged();
 
   // Modal save buttons
   document.getElementById('saveProjectBtn').onclick = saveProject;
   document.getElementById('saveServiceBtn').onclick = saveService;
+  document.getElementById('importScanBtn').onclick = importScanResult;
 
   // Close modal buttons
   document.querySelectorAll('[data-close]').forEach(btn => {

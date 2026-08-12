@@ -15,24 +15,28 @@
     </div>
     <div class="header-right">
       <button class="btn btn-primary" id="startAllBtn">▶ 全部运行</button>
+      <button class="btn" id="scanProjectBtn">🔎 扫描项目</button>
       <button class="btn btn-primary" id="addProjectBtn">+ 添加项目</button>
-      <span class="action-divider"></span>
-      <button class="btn" id="unmanagedBtn">🔍 未管理服务</button>
     </div>
   </header>
 
-  <main id="main"></main>
+  <main>
+    <!-- Unmanaged Services Panel -->
+    <section class="unmanaged-panel" id="unmanagedPanel">
+      <div class="unmanaged-header">
+        <h2>🔍 未管理服务</h2>
+        <span class="unmanaged-hint">本机正在监听 TCP 端口的进程（含本管理器），可添加备注、查看来源或停止单项</span>
+        <button class="btn btn-sm" id="unmanagedRefresh">🔄 刷新</button>
+      </div>
+      <div id="unmanagedList"></div>
+    </section>
 
-  <!-- Unmanaged Services Panel -->
-  <div class="unmanaged-panel" id="unmanagedPanel" style="display:none;">
-    <div class="unmanaged-header">
-      <h2>🔍 未管理服务</h2>
-      <span class="unmanaged-hint">本机正在监听 TCP 端口的进程（含本管理器），可添加备注、查看来源或停止单项</span>
-      <button class="btn btn-sm" id="unmanagedRefresh">🔄 刷新</button>
-      <button class="btn btn-sm" id="unmanagedClose">✕ 关闭</button>
+    <section id="projectsList"></section>
+
+    <div class="hidden-projects-shell">
+      <section id="hiddenProjectsList"></section>
     </div>
-    <div id="unmanagedList"></div>
-  </div>
+  </main>
 
   <!-- Project Modal -->
   <div class="modal-overlay" id="projectModal">
@@ -107,6 +111,24 @@
       <div class="modal-actions">
         <button class="btn btn-secondary" data-close="serviceModal">取消</button>
         <button class="btn btn-primary" id="saveServiceBtn">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scan Result Modal -->
+  <div class="modal-overlay" id="scanModal">
+    <div class="modal modal-wide">
+      <h2>扫描项目</h2>
+      <div class="form-group">
+        <label>项目名称</label>
+        <input type="text" id="scanProjectName">
+      </div>
+      <div class="scan-path" id="scanProjectPath"></div>
+      <div class="scan-summary" id="scanSummary"></div>
+      <div class="scan-services" id="scanServices"></div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" data-close="scanModal">取消</button>
+        <button class="btn btn-primary" id="importScanBtn">导入选中服务</button>
       </div>
     </div>
   </div>

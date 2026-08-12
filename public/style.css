@@ -369,6 +369,13 @@ main { max-width: 1400px; margin: 0 auto; padding: 24px; }
 }
 .empty-state .icon { font-size: 48px; margin-bottom: 16px; opacity: 0.6; }
 .empty-state p { margin-bottom: 20px; font-size: 15px; }
+.empty-state.compact {
+  padding: 28px 20px;
+  background: var(--bg-card);
+  border: 1px dashed var(--border-light);
+  border-radius: var(--radius);
+  margin-bottom: 16px;
+}
 
 /* ===== Modal ===== */
 .modal-overlay {
@@ -530,9 +537,7 @@ a.service-port:hover {
 
 /* ===== Unmanaged Services Panel ===== */
 .unmanaged-panel {
-  max-width: 1400px;
-  margin: 0 auto 24px;
-  padding: 0 24px;
+  margin-bottom: 18px;
 }
 
 .unmanaged-panel .unmanaged-header {
@@ -560,16 +565,28 @@ a.service-port:hover {
   flex: 1;
 }
 
-#unmanagedClose {
-  margin-left: auto;
-}
-
 #unmanagedList {
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: 0 0 var(--radius) var(--radius);
   overflow: hidden;
   box-shadow: var(--shadow);
+}
+
+.unmanaged-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 18px;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 12px;
+  flex-wrap: wrap;
+}
+
+.unmanaged-summary .btn {
+  margin-left: auto;
 }
 
 .unmanaged-row {
@@ -736,18 +753,23 @@ a.service-port:hover {
 }
 .known-unmanaged-header:hover { background: var(--bg-hover); }
 
-#unmanagedBtn.active {
-  background: var(--accent-dim);
-  border-color: var(--accent);
-  color: var(--accent);
+/* ===== Hidden Projects Section ===== */
+.hidden-projects-shell {
+  margin-top: 36px;
+  padding-top: 10px;
 }
 
-/* ===== Hidden Projects Section ===== */
 .hidden-projects-section {
-  margin-top: 8px;
+  max-width: 760px;
+  margin-left: auto;
   border: 1px dashed var(--border-light);
   border-radius: var(--radius);
   overflow: hidden;
+  opacity: 0.62;
+  transition: opacity var(--transition);
+}
+.hidden-projects-section:hover {
+  opacity: 1;
 }
 
 .hidden-projects-header {
@@ -755,7 +777,7 @@ a.service-port:hover {
   align-items: center;
   gap: 10px;
   padding: 12px 18px;
-  background: var(--bg-card);
+  background: rgba(255,255,255,0.55);
   cursor: pointer;
   transition: background var(--transition);
   user-select: none;
@@ -770,7 +792,7 @@ a.service-port:hover {
 }
 
 .hidden-projects-title {
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--text-dim);
 }
