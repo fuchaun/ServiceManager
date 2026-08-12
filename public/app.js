@@ -16,11 +16,37 @@ const ICONS = {
   show:   '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>',
   clear:  '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><rect x="5" y="6" width="14" height="16" rx="1"/></svg>',
   logs:   '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>',
+  note:   '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>',
 };
 
 function iconBtn(icon, onclick, title, danger = false) {
   const cls = danger ? 'icon-btn icon-btn-danger' : 'icon-btn';
   return `<button class="${cls}" onclick="${onclick}" title="${title}">${ICONS[icon]}</button>`;
+}
+
+// ============ Tech Icon Detection ============
+function detectTechIcon(command) {
+  const c = (command || '').toLowerCase();
+  const rules = [
+    ['streamlit', 'streamlit'], ['gradio', 'gradio'],
+    ['vite', 'vite'], ['pnpm', 'pnpm'], ['npm', 'npm'], ['yarn', 'yarn'],
+    ['bun', 'bun'], ['deno', 'deno'], ['node', 'node'],
+    ['react', 'react'], ['vue', 'vue'],
+    ['uv ', 'python'], ['uv"', 'python'], ['python', 'python'],
+    ['flask', 'flask'], ['django', 'django'], ['gunicorn', 'python'],
+    ['uvicorn', 'python'], ['jupyter', 'python'], ['conda', 'python'],
+    ['docker', 'docker'], ['nginx', 'nginx'], ['redis', 'redis'],
+    ['postgres', 'postgresql'], ['mysql', 'mysql'], ['maria', 'mysql'], ['mongo', 'mongodb'],
+    ['go run', 'go'], ['go build', 'go'], ['ruby', 'ruby'], ['rails', 'ruby'],
+    ['java', 'java'], ['mvn', 'java'], ['gradle', 'java'],
+    ['php', 'php'], ['cargo', 'rust'], ['ffmpeg', 'ffmpeg'],
+    ['ollama', 'ollama'], ['chrome', 'chrome'], ['electron', 'electron'],
+    ['brew', 'homebrew'],
+  ];
+  for (const [kw, icon] of rules) {
+    if (c.includes(kw)) return `/icons/tech/${icon}.svg`;
+  }
+  return '/icons/tech/generic.svg';
 }
 
 // ============ API ============
@@ -281,11 +307,12 @@ function renderService(service, project) {
     <div class="service-row">
       <div class="service-header">
         <div class="status-dot ${isRunning ? 'running' : 'stopped'}"></div>
-        <span class="service-name">${service.name ? escapeHtml(service.name) : '<span class="service-name-empty">未命名</span>'}</span>
+        <img class="service-icon" src="${detectTechIcon(service.command)}" alt="" onerror="this.src='/icons/tech/generic.svg'">
+        ${service.name ? `<span class="service-name">${escapeHtml(service.name)}</span>` : ''}
         <span class="service-command">${escapeHtml(service.command)}${envHint}</span>
         ${portBadge}
         ${isRunning && status.pid ? `<span class="service-pid">PID ${status.pid}</span>` : ''}
-        ${service.delayed ? `<span class="delayed-badge" title="标记为延迟运行，「全部运行」不会启动此服务">⏳ 延迟</span>` : ''}
+        ${service.delayed ? `<span class="delayed-badge" title="延迟服务：「全部运行」时会延迟 1 秒自动启动">⏳ 延迟</span>` : ''}
         ${isRunning && status.reattached ? `<span class="reattached-badge" title="此进程在服务管理器重启前已在运行，已自动重新接管。停止后重新启动可恢复完整日志捕获。">🔄 重接管</span>` : ''}
         <div class="service-actions">
           ${isRunning
@@ -334,8 +361,16 @@ async function stopService(serviceId) {
 }
 
 async function startAll(projectId) {
-  await api(`/api/projects/${projectId}/start-all`, 'POST');
-  toast('正在启动所有服务...', 'success');
+  const result = await api(`/api/projects/${projectId}/start-all`, 'POST');
+  if (result.error) { toast(result.error, 'error'); return; }
+  if (result.failures && result.failures.length > 0) {
+    toast(`已启动 ${result.started} 个，失败 ${result.failures.length} 个`, 'error');
+    for (const f of result.failures) toast(`${f.name}：${f.error}`, 'error');
+  } else if (result.delayed > 0) {
+    toast(`已启动 ${result.started} 个，${result.delayed} 个延迟服务将在 1 秒后自动启动`, 'success');
+  } else {
+    toast('正在启动所有服务...', 'success');
+  }
 }
 
 async function stopAllInProject(projectId) {
@@ -346,13 +381,17 @@ async function stopAllInProject(projectId) {
 async function startAllGlobal() {
   const result = await api('/api/start-all', 'POST');
   if (result.error) { toast(result.error, 'error'); return; }
-  if (result.started === 0 && result.skipped === 0) {
+  const failed = result.failures || [];
+  const parts = [];
+  if (result.started > 0) parts.push(`已启动 ${result.started} 个服务`);
+  if (result.delayed > 0) parts.push(`${result.delayed} 个延迟服务将在 1 秒后自动启动`);
+  if (failed.length > 0) parts.push(`失败 ${failed.length} 个`);
+  if (parts.length === 0) {
     toast('没有需要启动的服务', 'info');
-  } else if (result.skipped > 0) {
-    toast(`已启动 ${result.started} 个服务，跳过 ${result.skipped} 个延迟服务`, 'success');
   } else {
-    toast(`已启动 ${result.started} 个服务`, 'success');
+    toast(parts.join('，'), failed.length > 0 ? 'error' : 'success');
   }
+  for (const f of failed) toast(`${f.name}：${f.error}`, 'error');
 }
 
 async function clearLogs(serviceId) {
@@ -563,6 +602,7 @@ async function saveService() {
 // ============ Unmanaged Services ============
 let unmanagedServices = [];
 let unmanagedExpanded = new Set(); // expanded PIDs
+let editingNotePid = null; // PID currently being note-edited
 
 async function scanUnmanaged() {
   const panel = document.getElementById('unmanagedPanel');
@@ -586,26 +626,74 @@ function renderUnmanaged() {
 
   list.innerHTML = unmanagedServices.map(s => {
     const isExpanded = unmanagedExpanded.has(s.pid);
+    const isEditingNote = editingNotePid === s.pid;
     const portUrl = `http://localhost:${s.port}`;
+    const iconUrl = s.iconUrl || detectTechIcon(s.fullCommand || s.command);
     const etimeStr = s.etime ? `<span class="unmanaged-etime">⏱ ${escapeHtml(s.etime)}</span>` : '';
+    const selfBadge = s.isSelf ? `<span class="unmanaged-self-badge" title="这是 Service Manager 自身，不可在此停止">本管理器</span>` : '';
+    const noteHtml = isEditingNote
+      ? `<input class="unmanaged-note-input" id="noteInput-${s.pid}" value="${escapeHtml(s.note || '')}" placeholder="添加备注，回车保存" onclick="event.stopPropagation()" onkeydown="noteKeydown(event, ${s.pid})" onblur="saveUnmanagedNote(${s.pid})">`
+      : (s.note ? `<span class="unmanaged-note" title="点击编辑备注" onclick="event.stopPropagation(); editUnmanagedNote(${s.pid})">📝 ${escapeHtml(s.note)}</span>` : '');
     return `
       <div class="unmanaged-row">
         <div class="unmanaged-row-header" onclick="toggleUnmanagedDetail(${s.pid})">
           <div class="status-dot running"></div>
+          <img class="unmanaged-icon" src="${iconUrl}" alt=""${s.appName ? ` title="${escapeHtml(s.appName)}"` : ''} onerror="this.src='/icons/tech/generic.svg'">
           <span class="unmanaged-name">${escapeHtml(s.command)}</span>
           <a href="${portUrl}" target="_blank" class="unmanaged-port" onclick="event.stopPropagation()">🔗 :${s.port}</a>
           <span class="unmanaged-pid">PID ${s.pid}</span>
           ${etimeStr}
           <span class="unmanaged-user">${escapeHtml(s.user)}</span>
+          ${selfBadge}
+          ${noteHtml}
           <div class="unmanaged-actions">
+            ${iconBtn('note', `editUnmanagedNote(${s.pid}); event.stopPropagation();`, '添加/编辑备注')}
             ${iconBtn('logs', `toggleUnmanagedDetail(${s.pid}); event.stopPropagation();`, isExpanded ? '收起详情' : '查看详情')}
-            <button class="btn btn-sm btn-danger" onclick="killUnmanaged(${s.pid}); event.stopPropagation();">停止</button>
+            ${s.isSelf ? '' : `<button class="btn btn-sm btn-danger" onclick="killUnmanaged(${s.pid}); event.stopPropagation();">停止</button>`}
           </div>
         </div>
         ${isExpanded ? `<div class="unmanaged-detail"><label>完整命令</label><code>${escapeHtml(s.fullCommand || s.command)}</code></div>` : ''}
       </div>
     `;
   }).join('');
+
+  // Focus the note input when entering edit mode
+  if (editingNotePid !== null) {
+    const input = document.getElementById(`noteInput-${editingNotePid}`);
+    if (input) {
+      input.focus();
+      input.setSelectionRange(input.value.length, input.value.length);
+    }
+  }
+}
+
+function editUnmanagedNote(pid) {
+  editingNotePid = pid;
+  renderUnmanaged();
+}
+
+function noteKeydown(event, pid) {
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    saveUnmanagedNote(pid);
+  } else if (event.key === 'Escape') {
+    editingNotePid = null;
+    renderUnmanaged();
+  }
+}
+
+async function saveUnmanagedNote(pid) {
+  if (editingNotePid !== pid) return; // already saved via Enter
+  const input = document.getElementById(`noteInput-${pid}`);
+  const note = input ? input.value.trim() : '';
+  editingNotePid = null;
+  const s = unmanagedServices.find(x => x.pid === pid);
+  const oldNote = s ? (s.note || '') : '';
+  if (note === oldNote) { renderUnmanaged(); return; }
+  const result = await api('/api/unmanaged/note', 'POST', { pid, note });
+  if (result.error) { toast(result.error, 'error'); renderUnmanaged(); return; }
+  if (s) s.note = note;
+  renderUnmanaged();
 }
 
 function toggleUnmanagedDetail(pid) {

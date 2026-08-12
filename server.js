@@ -1,7 +1,7 @@
 const express = require('express');
 const { WebSocketServer } = require('ws');
 const http = require('http');
-const { spawn, execFile } = require('child_process');
+const { spawn, execFile, execFileSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -139,6 +139,57 @@ function pollReattachedProcesses() {
   if (changed) saveRuntimeState();
 }
 
+// ============ Unmanaged Service Notes ============
+const UNMANAGED_NOTES_FILE = path.join(LOGS_DIR, 'unmanaged-notes.json');
+
+function loadUnmanagedNotes() {
+  try {
+    return JSON.parse(fs.readFileSync(UNMANAGED_NOTES_FILE, 'utf-8'));
+  } catch {
+    return {};
+  }
+}
+
+function saveUnmanagedNotes(notes) {
+  try {
+    if (!fs.existsSync(LOGS_DIR)) fs.mkdirSync(LOGS_DIR, { recursive: true });
+    fs.writeFileSync(UNMANAGED_NOTES_FILE, JSON.stringify(notes, null, 2));
+  } catch {}
+}
+
+// ============ App Icon Extraction ============
+const APP_ICON_CACHE_DIR = path.join(__dirname, 'public', 'icons', 'cache');
+
+// Extract the .app bundle path from a full command line, e.g.
+// "/Applications/Google Chrome.app/Contents/Frameworks/..." -> "/Applications/Google Chrome.app"
+function extractAppPath(commandLine) {
+  if (!commandLine) return null;
+  const m = commandLine.match(/^"?(.+?\.app)"?\//);
+  return m ? m[1] : null;
+}
+
+// Convert an app's .icns to a cached 64x64 png under public/icons/cache.
+// Returns the static URL path, or null on failure.
+function getAppIconUrl(appPath) {
+  try {
+    const key = crypto.createHash('md5').update(appPath).digest('hex');
+    const outFile = path.join(APP_ICON_CACHE_DIR, key + '.png');
+    if (!fs.existsSync(outFile)) {
+      const plistBase = path.join(appPath, 'Contents', 'Info');
+      let iconFile = execFileSync('defaults', ['read', plistBase, 'CFBundleIconFile'], { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
+      if (!iconFile) return null;
+      if (!iconFile.endsWith('.icns')) iconFile += '.icns';
+      const icnsPath = path.join(appPath, 'Contents', 'Resources', iconFile);
+      if (!fs.existsSync(icnsPath)) return null;
+      if (!fs.existsSync(APP_ICON_CACHE_DIR)) fs.mkdirSync(APP_ICON_CACHE_DIR, { recursive: true });
+      execFileSync('sips', ['-s', 'format', 'png', '-z', '64', '64', icnsPath, '--out', outFile], { stdio: ['pipe', 'pipe', 'pipe'] });
+    }
+    return `/icons/cache/${key}.png`;
+  } catch {
+    return null;
+  }
+}
+
 // ============ Unmanaged Service Scanner ============
 function scanUnmanagedServices() {
   return new Promise((resolve) => {
@@ -148,67 +199,79 @@ function scanUnmanagedServices() {
         return;
       }
 
-      // Collect PIDs managed by us (including Service Manager itself)
-      const managedPids = new Set([process.pid]);
+      // Collect PIDs managed by us. Service Manager itself (process.pid) is
+      // NOT excluded — it appears in the list flagged with isSelf.
+      // Services spawn with detached:true, so the tracked PID is a process-group
+      // leader; descendants (npm→node, uv→python) share that pgid.
+      const managedPids = new Set();
+      const managedPgids = new Set();
       for (const [, proc] of processes) {
         managedPids.add(proc.pid);
+        managedPgids.add(proc.pid);
       }
 
-      const seen = new Set();
-      const entries = [];
-
-      const lines = stdout.trim().split('\n');
-      for (let i = 1; i < lines.length; i++) {
-        const line = lines[i];
-        if (!line.trim()) continue;
-
-        const parts = line.trim().split(/\s+/);
-        if (parts.length < 9) continue;
-
-        const command = parts[0];
-        const pid = parseInt(parts[1]);
-        const user = parts[2];
-        const nameField = parts[8];
-
-        const portMatch = nameField.match(/:(\d+)$/);
-        if (!portMatch) continue;
-        const port = parseInt(portMatch[1]);
-
-        // Filter: skip system processes and our managed ones
-        if (managedPids.has(pid)) continue;
-        if (seen.has(pid)) continue;
-        if (user === 'root') continue;
-        if (pid < 2) continue;
-
-        seen.add(pid);
-        entries.push({ pid, port, command, user });
-      }
-
-      if (entries.length === 0) {
-        resolve([]);
-        return;
-      }
-
-      // Batch get full command + elapsed time
-      const pidList = entries.map(e => e.pid).join(',');
-      execFile('ps', ['-p', pidList, '-o', 'pid=,etime=,command='], (err2, psOut) => {
-        if (!err2 && psOut.trim()) {
-          const cmdMap = {};
+      // Build pid -> { pgid, etime, command } map for all processes
+      execFile('ps', ['-eo', 'pid=,pgid=,etime=,command='], (psErr, psOut) => {
+        const psMap = {};
+        if (!psErr && psOut.trim()) {
           for (const line of psOut.trim().split('\n')) {
-            const m = line.trim().match(/^(\d+)\s+(\S+)\s+(.+)$/);
-            if (m) cmdMap[m[1]] = { etime: m[2], command: m[3].trim() };
-          }
-          for (const entry of entries) {
-            const info = cmdMap[entry.pid];
-            entry.fullCommand = info ? info.command : entry.command;
-            entry.etime = info ? info.etime : '';
-          }
-        } else {
-          for (const entry of entries) {
-            entry.fullCommand = entry.command;
-            entry.etime = '';
+            const m = line.trim().match(/^(\d+)\s+(\d+)\s+(\S+)\s+(.+)$/);
+            if (m) psMap[m[1]] = { pgid: parseInt(m[2]), etime: m[3], command: m[4].trim() };
           }
         }
+
+        const seen = new Set();
+        const entries = [];
+
+        const lines = stdout.trim().split('\n');
+        for (let i = 1; i < lines.length; i++) {
+          const line = lines[i];
+          if (!line.trim()) continue;
+
+          const parts = line.trim().split(/\s+/);
+          if (parts.length < 9) continue;
+
+          const command = parts[0];
+          const pid = parseInt(parts[1]);
+          const user = parts[2];
+          const nameField = parts[8];
+
+          const portMatch = nameField.match(/:(\d+)$/);
+          if (!portMatch) continue;
+          const port = parseInt(portMatch[1]);
+
+          // Filter: skip system processes, our managed ones, and any process
+          // inside a managed process group (descendants of managed services)
+          if (managedPids.has(pid)) continue;
+          const psInfo = psMap[pid];
+          if (psInfo && managedPgids.has(psInfo.pgid)) continue;
+          if (seen.has(pid)) continue;
+          if (user === 'root') continue;
+          if (pid < 2) continue;
+
+          seen.add(pid);
+          entries.push({
+            pid, port, command, user,
+            fullCommand: psInfo ? psInfo.command : command,
+            etime: psInfo ? psInfo.etime : '',
+            isSelf: pid === process.pid,
+          });
+        }
+
+        // Attach saved notes
+        const notes = loadUnmanagedNotes();
+        for (const e of entries) e.note = notes[e.pid] || '';
+
+        // Resolve icons: .app bundle icon if the process belongs to an app
+        for (const e of entries) {
+          const appPath = extractAppPath(e.fullCommand);
+          if (appPath) {
+            e.appName = path.basename(appPath, '.app');
+            const iconUrl = getAppIconUrl(appPath);
+            if (iconUrl) e.iconUrl = iconUrl;
+          }
+        }
+
         // Sort by port number
         entries.sort((a, b) => a.port - b.port);
         resolve(entries);
@@ -218,12 +281,54 @@ function scanUnmanagedServices() {
 }
 
 // ============ Process Management ============
+// Check if a TCP port is already being LISTENed on; returns { pid, command } or null
+function findPortOccupant(port) {
+  try {
+    const out = execFileSync('lsof', ['-iTCP:' + port, '-sTCP:LISTEN', '-P', '-n', '-t'], { encoding: 'utf-8' });
+    const pid = parseInt(out.trim().split('\n')[0]);
+    if (!pid) return null;
+    let command = '';
+    try {
+      command = execFileSync('ps', ['-p', String(pid), '-o', 'command='], { encoding: 'utf-8' }).trim();
+    } catch {}
+    return { pid, command };
+  } catch {
+    return null; // lsof exits 1 when nothing matches
+  }
+}
+
 function startProcess(serviceId) {
   const result = findService(serviceId);
   if (!result) return { error: 'Service not found' };
   if (processes.has(serviceId)) return { error: 'Already running' };
 
   const { project, service } = result;
+
+  // Pre-flight: refuse to spawn if the configured port is already occupied,
+  // otherwise the new process dies with EADDRINUSE and the squatter (often a
+  // leftover orphan) keeps serving — looking like "running" but unmanaged.
+  if (service.port) {
+    const occupant = findPortOccupant(parseInt(service.port));
+    if (occupant) {
+      // Is the occupant part of a managed service's process group?
+      let managedBy = null;
+      try {
+        const pgid = parseInt(execFileSync('ps', ['-p', String(occupant.pid), '-o', 'pgid='], { encoding: 'utf-8' }).trim());
+        for (const [sid, proc] of processes) {
+          if (proc.pid === occupant.pid || proc.pid === pgid) {
+            const found = findService(sid);
+            managedBy = found ? (found.service.name || found.service.command) : null;
+            break;
+          }
+        }
+      } catch {}
+      if (managedBy) {
+        return { error: `端口 ${service.port} 已被正在运行的服务「${managedBy}」占用` };
+      }
+      const cmdInfo = occupant.command ? `（${occupant.command}）` : '';
+      return { error: `端口 ${service.port} 已被 PID ${occupant.pid}${cmdInfo} 占用，请先在「未管理服务」中停止该进程，或为服务配置其他端口` };
+    }
+  }
 
   let cwd = service.cwd || project.path || process.cwd();
   if (!path.isAbsolute(cwd) && project.path) {
@@ -321,6 +426,14 @@ function startProcess(serviceId) {
   });
 
   return { success: true, pid: child.pid };
+}
+
+// Delayed services: auto-start after a short grace period (1s) so
+// dependencies (databases, backends) can come up first.
+function scheduleDelayedStart(serviceId, delayMs = 1000) {
+  setTimeout(() => {
+    if (!processes.has(serviceId)) startProcess(serviceId);
+  }, delayMs);
 }
 
 function stopProcess(serviceId) {
@@ -457,10 +570,17 @@ app.post('/api/services/:serviceId/stop', (req, res) => res.json(stopProcess(req
 app.post('/api/projects/:id/start-all', (req, res) => {
   const project = config.projects.find(p => p.id === req.params.id);
   if (!project) return res.status(404).json({ error: 'Not found' });
+  let started = 0;
+  let delayed = 0;
+  const failures = [];
   for (const service of (project.services || [])) {
-    if (!processes.has(service.id) && !service.delayed) startProcess(service.id);
+    if (processes.has(service.id)) continue;
+    if (service.delayed) { delayed++; scheduleDelayedStart(service.id); continue; }
+    const r = startProcess(service.id);
+    if (r.error) failures.push({ name: service.name || service.command, error: r.error });
+    else started++;
   }
-  res.json({ success: true });
+  res.json({ success: true, started, delayed, failures });
 });
 
 app.post('/api/projects/:id/stop-all', (req, res) => {
@@ -474,17 +594,19 @@ app.post('/api/projects/:id/stop-all', (req, res) => {
 
 app.post('/api/start-all', (_req, res) => {
   let started = 0;
-  let skipped = 0;
+  let delayed = 0;
+  const failures = [];
   for (const project of config.projects) {
     if (project.hidden) continue;
     for (const service of (project.services || [])) {
       if (processes.has(service.id)) continue;
-      if (service.delayed) { skipped++; continue; }
-      startProcess(service.id);
-      started++;
+      if (service.delayed) { delayed++; scheduleDelayedStart(service.id); continue; }
+      const r = startProcess(service.id);
+      if (r.error) failures.push({ name: service.name || service.command, error: r.error });
+      else started++;
     }
   }
-  res.json({ success: true, started, skipped });
+  res.json({ success: true, started, delayed, failures });
 });
 
 app.delete('/api/services/:serviceId/logs', (req, res) => {
@@ -519,6 +641,19 @@ app.get('/api/unmanaged', async (_req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+app.post('/api/unmanaged/note', (req, res) => {
+  const pidNum = parseInt(req.body.pid);
+  if (!pidNum) {
+    return res.status(400).json({ error: '无效的 PID' });
+  }
+  const notes = loadUnmanagedNotes();
+  const note = (req.body.note || '').trim();
+  if (note) notes[pidNum] = note;
+  else delete notes[pidNum];
+  saveUnmanagedNotes(notes);
+  res.json({ success: true });
 });
 
 app.post('/api/unmanaged/kill', (req, res) => {
