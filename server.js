@@ -6,7 +6,8 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
-const PORT = 3456;
+const PORT = parseInt(process.env.PORT || '3456', 10);
+const HOST = process.env.HOST || '127.0.0.1';
 const CONFIG_FILE = path.join(__dirname, 'config.json');
 const LOGS_DIR = path.join(__dirname, 'logs');
 const RUNTIME_STATE_FILE = path.join(LOGS_DIR, 'runtime-state.json');
@@ -58,6 +59,10 @@ function addToBuffer(serviceId, entry) {
   logBuffers.set(serviceId, buf);
 }
 
+function ensureLogsDir() {
+  if (!fs.existsSync(LOGS_DIR)) fs.mkdirSync(LOGS_DIR, { recursive: true });
+}
+
 // ============ Runtime State Persistence ============
 function saveRuntimeState() {
   try {
@@ -65,7 +70,7 @@ function saveRuntimeState() {
     for (const [serviceId, proc] of processes) {
       state[serviceId] = { pid: proc.pid, startedAt: proc.startedAt };
     }
-    if (!fs.existsSync(LOGS_DIR)) fs.mkdirSync(LOGS_DIR, { recursive: true });
+    ensureLogsDir();
     fs.writeFileSync(RUNTIME_STATE_FILE, JSON.stringify(state, null, 2));
   } catch {}
 }
@@ -152,7 +157,7 @@ function loadUnmanagedNotes() {
 
 function saveUnmanagedNotes(notes) {
   try {
-    if (!fs.existsSync(LOGS_DIR)) fs.mkdirSync(LOGS_DIR, { recursive: true });
+    ensureLogsDir();
     fs.writeFileSync(UNMANAGED_NOTES_FILE, JSON.stringify(notes, null, 2));
   } catch {}
 }
@@ -722,8 +727,16 @@ process.on('SIGTERM', () => { cleanup(); process.exit(0); });
 loadConfig();
 const restored = restoreRuntimeState();
 setInterval(pollReattachedProcesses, 3000);
-server.listen(PORT, '127.0.0.1', () => {
-  console.log(`\n  ⚡ Service Manager running at http://localhost:${PORT}`);
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`Port ${PORT} is already in use. Start with another port, for example: PORT=3457 npm start`);
+    process.exit(1);
+  }
+  throw err;
+});
+
+server.listen(PORT, HOST, () => {
+  console.log(`\n  ⚡ Service Manager running at http://${HOST}:${PORT}`);
   if (restored) {
     console.log(`  🔄 Re-attached ${restored} running process(es) from previous session\n`);
   } else {

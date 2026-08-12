@@ -54,7 +54,15 @@ async function api(url, method = 'GET', body = null) {
   const opts = { method, headers: { 'Content-Type': 'application/json' } };
   if (body) opts.body = JSON.stringify(body);
   const res = await fetch(url, opts);
-  return res.json();
+  const text = await res.text();
+  let data = {};
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    data = { error: text || `请求失败 (${res.status})` };
+  }
+  if (!res.ok && !data.error) data.error = `请求失败 (${res.status})`;
+  return data;
 }
 
 // ============ Utils ============

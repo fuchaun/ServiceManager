@@ -58,6 +58,12 @@ node server.js
 
 浏览器打开 `http://localhost:3456` 即可使用。
 
+如果端口被占用，可以临时换端口启动：
+
+```bash
+PORT=3457 npm start
+```
+
 ### 3. 使用流程
 
 1. 点击「+ 添加项目」，填写项目名称和路径（macOS 下可点击 📁 按钮用 Finder 选择）

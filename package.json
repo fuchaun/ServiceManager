@@ -4,7 +4,8 @@
   "description": "多项目多服务本地管理面板",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "check": "node --check server.js && node --check public/app.js"
   },
   "dependencies": {
     "express": "^4.18.2",

@@ -1,5 +1,12 @@
 node_modules/
-logs/*.log
+
+# Local configuration and runtime data
 config.json
+logs/*
+!logs/.gitkeep
+public/icons/cache/
+
+# Local tooling / OS metadata
 .workbuddy/
 .DS_Store
+**/.DS_Store
