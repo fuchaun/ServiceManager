@@ -610,6 +610,7 @@ async function saveService() {
 // ============ Unmanaged Services ============
 let unmanagedServices = [];
 let unmanagedExpanded = new Set(); // expanded PIDs
+let knownUnmanagedExpanded = false;
 let editingNotePid = null; // PID currently being note-edited
 
 async function scanUnmanaged() {
@@ -632,38 +633,25 @@ function renderUnmanaged() {
     return;
   }
 
-  list.innerHTML = unmanagedServices.map(s => {
-    const isExpanded = unmanagedExpanded.has(s.pid);
-    const isEditingNote = editingNotePid === s.pid;
-    const portUrl = `http://localhost:${s.port}`;
-    const iconUrl = s.iconUrl || detectTechIcon(s.fullCommand || s.command);
-    const etimeStr = s.etime ? `<span class="unmanaged-etime">⏱ ${escapeHtml(s.etime)}</span>` : '';
-    const selfBadge = s.isSelf ? `<span class="unmanaged-self-badge" title="这是 Service Manager 自身，不可在此停止">本管理器</span>` : '';
-    const noteHtml = isEditingNote
-      ? `<input class="unmanaged-note-input" id="noteInput-${s.pid}" value="${escapeHtml(s.note || '')}" placeholder="添加备注，回车保存" onclick="event.stopPropagation()" onkeydown="noteKeydown(event, ${s.pid})" onblur="saveUnmanagedNote(${s.pid})">`
-      : (s.note ? `<span class="unmanaged-note" title="点击编辑备注" onclick="event.stopPropagation(); editUnmanagedNote(${s.pid})">📝 ${escapeHtml(s.note)}</span>` : '');
-    return `
-      <div class="unmanaged-row">
-        <div class="unmanaged-row-header" onclick="toggleUnmanagedDetail(${s.pid})">
-          <div class="status-dot running"></div>
-          <img class="unmanaged-icon" src="${iconUrl}" alt=""${s.appName ? ` title="${escapeHtml(s.appName)}"` : ''} onerror="this.src='/icons/tech/generic.svg'">
-          <span class="unmanaged-name">${escapeHtml(s.command)}</span>
-          <a href="${portUrl}" target="_blank" class="unmanaged-port" onclick="event.stopPropagation()">🔗 :${s.port}</a>
-          <span class="unmanaged-pid">PID ${s.pid}</span>
-          ${etimeStr}
-          <span class="unmanaged-user">${escapeHtml(s.user)}</span>
-          ${selfBadge}
-          ${noteHtml}
-          <div class="unmanaged-actions">
-            ${iconBtn('note', `editUnmanagedNote(${s.pid}); event.stopPropagation();`, '添加/编辑备注')}
-            ${iconBtn('logs', `toggleUnmanagedDetail(${s.pid}); event.stopPropagation();`, isExpanded ? '收起详情' : '查看详情')}
-            ${s.isSelf ? '' : `<button class="btn btn-sm btn-danger" onclick="killUnmanaged(${s.pid}); event.stopPropagation();">停止</button>`}
-          </div>
+  const activeServices = unmanagedServices.filter(s => !s.hidden);
+  const knownServices = unmanagedServices.filter(s => s.hidden);
+  const activeHtml = activeServices.length
+    ? activeServices.map(s => renderUnmanagedRow(s)).join('')
+    : '<div style="padding:20px;color:var(--text-muted);">没有需要关注的未管理服务</div>';
+  const knownHtml = knownServices.length
+    ? `
+      <div class="known-unmanaged-section">
+        <div class="known-unmanaged-header" onclick="toggleKnownUnmanaged()">
+          <span class="hidden-projects-toggle">${knownUnmanagedExpanded ? '▼' : '▶'}</span>
+          <span class="hidden-projects-title">已知服务 (${knownServices.length})</span>
+          <span class="hidden-projects-hint">${knownUnmanagedExpanded ? '点击折叠' : '点击展开'}</span>
         </div>
-        ${isExpanded ? `<div class="unmanaged-detail"><label>完整命令</label><code>${escapeHtml(s.fullCommand || s.command)}</code></div>` : ''}
+        ${knownUnmanagedExpanded ? knownServices.map(s => renderUnmanagedRow(s, true)).join('') : ''}
       </div>
-    `;
-  }).join('');
+    `
+    : '';
+
+  list.innerHTML = activeHtml + knownHtml;
 
   // Focus the note input when entering edit mode
   if (editingNotePid !== null) {
@@ -673,6 +661,43 @@ function renderUnmanaged() {
       input.setSelectionRange(input.value.length, input.value.length);
     }
   }
+}
+
+function renderUnmanagedRow(s, isKnown = false) {
+  const isExpanded = unmanagedExpanded.has(s.pid);
+  const isEditingNote = editingNotePid === s.pid;
+  const portUrl = `http://localhost:${s.port}`;
+  const iconUrl = s.iconUrl || detectTechIcon(s.fullCommand || s.command);
+  const etimeStr = s.etime ? `<span class="unmanaged-etime">⏱ ${escapeHtml(s.etime)}</span>` : '';
+  const selfBadge = s.isSelf ? `<span class="unmanaged-self-badge" title="这是 Service Manager 自身，不可在此停止">本管理器</span>` : '';
+  const noteHtml = isEditingNote
+    ? `<input class="unmanaged-note-input" id="noteInput-${s.pid}" value="${escapeHtml(s.note || '')}" placeholder="添加备注，回车保存" onclick="event.stopPropagation()" onkeydown="noteKeydown(event, ${s.pid})" onblur="saveUnmanagedNote(${s.pid})">`
+    : (s.note ? `<span class="unmanaged-note" title="点击编辑备注" onclick="event.stopPropagation(); editUnmanagedNote(${s.pid})">📝 ${escapeHtml(s.note)}</span>` : '');
+  return `
+    <div class="unmanaged-row${isKnown ? ' unmanaged-row-known' : ''}">
+      <div class="unmanaged-row-header" onclick="toggleUnmanagedDetail(${s.pid})">
+        <div class="status-dot running"></div>
+        <img class="unmanaged-icon" src="${iconUrl}" alt=""${s.appName ? ` title="${escapeHtml(s.appName)}"` : ''} onerror="this.src='/icons/tech/generic.svg'">
+        <span class="unmanaged-name">${escapeHtml(s.command)}</span>
+        <a href="${portUrl}" target="_blank" class="unmanaged-port" onclick="event.stopPropagation()">🔗 :${s.port}</a>
+        <span class="unmanaged-pid">PID ${s.pid}</span>
+        ${etimeStr}
+        <span class="unmanaged-user">${escapeHtml(s.user)}</span>
+        ${selfBadge}
+        ${noteHtml}
+        <div class="unmanaged-actions">
+          ${iconBtn('note', `editUnmanagedNote(${s.pid}); event.stopPropagation();`, '添加/编辑备注')}
+          ${iconBtn('logs', `toggleUnmanagedDetail(${s.pid}); event.stopPropagation();`, isExpanded ? '收起详情' : '查看详情')}
+          ${isKnown
+            ? iconBtn('show', `setUnmanagedKnown('${s.hiddenKey}', false); event.stopPropagation();`, '放回未管理服务')
+            : iconBtn('hide', `setUnmanagedKnown('${s.hiddenKey}', true); event.stopPropagation();`, '折叠到已知服务')
+          }
+          ${s.isSelf ? '' : `<button class="btn btn-sm btn-danger" onclick="killUnmanaged(${s.pid}); event.stopPropagation();">停止</button>`}
+        </div>
+      </div>
+      ${isExpanded ? `<div class="unmanaged-detail"><label>完整命令</label><code>${escapeHtml(s.fullCommand || s.command)}</code></div>` : ''}
+    </div>
+  `;
 }
 
 function editUnmanagedNote(pid) {
@@ -708,6 +733,22 @@ function toggleUnmanagedDetail(pid) {
   if (unmanagedExpanded.has(pid)) unmanagedExpanded.delete(pid);
   else unmanagedExpanded.add(pid);
   renderUnmanaged();
+}
+
+function toggleKnownUnmanaged() {
+  knownUnmanagedExpanded = !knownUnmanagedExpanded;
+  renderUnmanaged();
+}
+
+async function setUnmanagedKnown(key, hidden) {
+  const result = await api('/api/unmanaged/hidden', 'POST', { key, hidden });
+  if (result.error) { toast(result.error, 'error'); return; }
+  for (const s of unmanagedServices) {
+    if (s.hiddenKey === key) s.hidden = hidden;
+  }
+  if (!hidden) knownUnmanagedExpanded = true;
+  renderUnmanaged();
+  toast(hidden ? '已折叠到已知服务' : '已放回未管理服务', hidden ? 'info' : 'success');
 }
 
 async function killUnmanaged(pid) {

@@ -578,6 +578,13 @@ a.service-port:hover {
 }
 .unmanaged-row:last-child { border-bottom: none; }
 .unmanaged-row:hover { background: rgba(59,130,246,0.03); }
+.unmanaged-row-known {
+  background: var(--bg-elevated);
+  opacity: 0.78;
+}
+.unmanaged-row-known:hover {
+  opacity: 1;
+}
 
 .unmanaged-row-header {
   display: flex;
@@ -712,6 +719,22 @@ a.service-port:hover {
   word-break: break-all;
   white-space: pre-wrap;
 }
+
+.known-unmanaged-section {
+  border-top: 1px dashed var(--border-light);
+}
+
+.known-unmanaged-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 18px;
+  background: var(--bg-elevated);
+  cursor: pointer;
+  transition: background var(--transition);
+  user-select: none;
+}
+.known-unmanaged-header:hover { background: var(--bg-hover); }
 
 #unmanagedBtn.active {
   background: var(--accent-dim);

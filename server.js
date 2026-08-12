@@ -146,6 +146,7 @@ function pollReattachedProcesses() {
 
 // ============ Unmanaged Service Notes ============
 const UNMANAGED_NOTES_FILE = path.join(LOGS_DIR, 'unmanaged-notes.json');
+const UNMANAGED_HIDDEN_FILE = path.join(LOGS_DIR, 'unmanaged-hidden.json');
 
 function loadUnmanagedNotes() {
   try {
@@ -160,6 +161,32 @@ function saveUnmanagedNotes(notes) {
     ensureLogsDir();
     fs.writeFileSync(UNMANAGED_NOTES_FILE, JSON.stringify(notes, null, 2));
   } catch {}
+}
+
+function loadUnmanagedHiddenKeys() {
+  try {
+    const keys = JSON.parse(fs.readFileSync(UNMANAGED_HIDDEN_FILE, 'utf-8'));
+    return new Set(Array.isArray(keys) ? keys : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function saveUnmanagedHiddenKeys(keys) {
+  try {
+    ensureLogsDir();
+    fs.writeFileSync(UNMANAGED_HIDDEN_FILE, JSON.stringify([...keys].sort(), null, 2));
+  } catch {}
+}
+
+function getUnmanagedKey(entry) {
+  const raw = [
+    entry.user || '',
+    entry.port || '',
+    entry.command || '',
+    entry.fullCommand || '',
+  ].join('\0');
+  return crypto.createHash('sha1').update(raw).digest('hex');
 }
 
 // ============ App Icon Extraction ============
@@ -263,9 +290,14 @@ function scanUnmanagedServices() {
           });
         }
 
-        // Attach saved notes
+        // Attach saved local metadata
         const notes = loadUnmanagedNotes();
-        for (const e of entries) e.note = notes[e.pid] || '';
+        const hiddenKeys = loadUnmanagedHiddenKeys();
+        for (const e of entries) {
+          e.note = notes[e.pid] || '';
+          e.hiddenKey = getUnmanagedKey(e);
+          e.hidden = hiddenKeys.has(e.hiddenKey);
+        }
 
         // Resolve icons: .app bundle icon if the process belongs to an app
         for (const e of entries) {
@@ -659,6 +691,18 @@ app.post('/api/unmanaged/note', (req, res) => {
   else delete notes[pidNum];
   saveUnmanagedNotes(notes);
   res.json({ success: true });
+});
+
+app.post('/api/unmanaged/hidden', (req, res) => {
+  const key = String(req.body.key || '').trim();
+  if (!/^[a-f0-9]{40}$/.test(key)) {
+    return res.status(400).json({ error: '无效的服务标识' });
+  }
+  const hiddenKeys = loadUnmanagedHiddenKeys();
+  if (req.body.hidden) hiddenKeys.add(key);
+  else hiddenKeys.delete(key);
+  saveUnmanagedHiddenKeys(hiddenKeys);
+  res.json({ success: true, hidden: hiddenKeys.has(key) });
 });
 
 app.post('/api/unmanaged/kill', (req, res) => {
