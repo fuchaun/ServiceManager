@@ -4,6 +4,7 @@ let statuses = {};
 let appHealth = null;
 let ws = null;
 const expandedServices = new Set();
+const expandedProjectServices = new Set();
 let editingProjectId = null;
 let editingService = null; // { projectId, serviceId }
 let currentProjectIdForService = null;
@@ -273,26 +274,35 @@ function render() {
 function renderProject(project, isHidden = false) {
   const services = (project.services || []);
   const runningCount = services.filter(s => statuses[s.id]?.status === 'running').length;
+  const servicesExpanded = expandedProjectServices.has(project.id) || isHidden;
+  const visibleServices = servicesExpanded ? services : services.slice(0, 1);
+  const hiddenServiceCount = Math.max(0, services.length - visibleServices.length);
 
   const hasRunning = runningCount > 0;
   const hasStopped = services.length > 0 && runningCount < services.length;
 
   const servicesHtml = services.length
-    ? services.map(s => renderService(s, project)).join('')
+    ? `
+      ${visibleServices.map(s => renderService(s, project)).join('')}
+      ${hiddenServiceCount > 0 ? `<button class="collapsed-services-hint" onclick="toggleProjectServices('${project.id}')">还有 ${hiddenServiceCount} 个服务已折叠，点击展开</button>` : ''}
+    `
     : `<div style="padding:20px;color:var(--text-muted);font-size:13px;">还没有服务，点击「添加服务」</div>`;
 
   return `
     <div class="project-section${isHidden ? ' project-hidden' : ''}">
       <div class="project-header">
         <div class="project-title">
-          <h2>${escapeHtml(project.name)}</h2>
-          ${runningCount > 0 ? `<span class="status-summary">${runningCount} 个服务运行中</span>` : ''}
-          ${project.path ? `<span class="project-path">${escapeHtml(project.path)}</span>` : ''}
+          <div class="project-title-main">
+            <h2 title="${escapeHtml(project.name)}">${escapeHtml(project.name)}</h2>
+            <span class="project-service-count">${runningCount} / ${services.length} 运行中</span>
+          </div>
+          ${project.path ? `<span class="project-path" title="${escapeHtml(project.path)}">${escapeHtml(project.path)}</span>` : ''}
         </div>
         <div class="project-actions">
           ${hasStopped ? `<button class="btn btn-sm btn-primary" onclick="startAll('${project.id}')">全部启动</button>` : ''}
           ${hasRunning ? `<button class="btn btn-sm btn-danger" onclick="stopAllInProject('${project.id}')">全部停止</button>` : ''}
           <button class="btn btn-sm" onclick="showServiceModal('${project.id}')">+ 添加服务</button>
+          ${services.length > 1 ? `<button class="btn btn-sm" onclick="toggleProjectServices('${project.id}')">${servicesExpanded && !isHidden ? '收起服务' : '展开服务'}</button>` : ''}
           <span class="action-divider"></span>
           ${iconBtn('edit', `showProjectModal('${project.id}')`, '编辑项目')}
           ${isHidden
@@ -431,6 +441,12 @@ async function clearLogs(serviceId) {
 function toggleLog(serviceId) {
   if (expandedServices.has(serviceId)) expandedServices.delete(serviceId);
   else expandedServices.add(serviceId);
+  render();
+}
+
+function toggleProjectServices(projectId) {
+  if (expandedProjectServices.has(projectId)) expandedProjectServices.delete(projectId);
+  else expandedProjectServices.add(projectId);
   render();
 }
 
