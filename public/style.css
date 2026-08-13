@@ -153,15 +153,23 @@ header h1 { font-size: 18px; font-weight: 600; letter-spacing: -0.3px; color: #1
 /* ===== Main ===== */
 main { max-width: 1400px; margin: 0 auto; padding: 24px; }
 
+#projectsList {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+  gap: 16px;
+  align-items: start;
+  margin-bottom: 18px;
+}
+
 /* ===== Project Section ===== */
 .project-section {
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  margin-bottom: 16px;
   overflow: hidden;
   box-shadow: var(--shadow);
   transition: border-color var(--transition), box-shadow var(--transition);
+  min-width: 0;
 }
 .project-section:hover {
   border-color: var(--border-light);
@@ -171,16 +179,29 @@ main { max-width: 1400px; margin: 0 auto; padding: 24px; }
 .project-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   padding: 12px 18px;
   border-bottom: 1px solid var(--border);
   background: var(--bg-elevated);
-  flex-wrap: wrap;
-  gap: 8px;
+  gap: 10px;
 }
 
-.project-title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.project-title h2 { font-size: 15px; font-weight: 600; color: #1e293b; }
+.project-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.project-title h2 {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1e293b;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .project-path {
   font-size: 11px;
   color: var(--text-muted);
@@ -189,9 +210,20 @@ main { max-width: 1400px; margin: 0 auto; padding: 24px; }
   padding: 2px 8px;
   border-radius: 4px;
   border: 1px solid var(--border);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.project-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.project-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  flex-shrink: 0;
+}
 
 /* Divider between primary and icon actions */
 .action-divider {
@@ -226,6 +258,7 @@ main { max-width: 1400px; margin: 0 auto; padding: 24px; }
   gap: 10px;
   padding: 10px 18px;
   flex-wrap: wrap;
+  min-width: 0;
 }
 
 .service-icon {
@@ -900,6 +933,10 @@ a.service-port:hover {
   header { flex-direction: column; gap: 10px; align-items: stretch; height: auto; padding: 12px; }
   .header-left { justify-content: center; }
   .header-right { justify-content: center; flex-wrap: wrap; }
+  main { padding: 12px; }
+  #projectsList { grid-template-columns: 1fr; }
+  .project-header { flex-direction: column; }
+  .project-actions { justify-content: flex-start; }
   .service-header { flex-direction: column; align-items: stretch; }
   .service-name { min-width: auto; }
   .service-command { min-width: auto; }

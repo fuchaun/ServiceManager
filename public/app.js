@@ -251,7 +251,7 @@ function render() {
       <div class="hidden-projects-section">
         <div class="hidden-projects-header" onclick="toggleHiddenProjects()">
           <span class="hidden-projects-toggle">${expandIcon}</span>
-          <span class="hidden-projects-title">📦 已隐藏的项目 (${hiddenProjects.length})</span>
+          <span class="hidden-projects-title">已隐藏的项目 (${hiddenProjects.length})</span>
           <span class="hidden-projects-hint">${hiddenProjectsExpanded ? '点击折叠' : '点击展开'}</span>
         </div>
         ${hiddenProjectsExpanded ? hiddenProjects.map(p => renderProject(p, true)).join('') : ''}
@@ -285,7 +285,7 @@ function renderProject(project, isHidden = false) {
     <div class="project-section${isHidden ? ' project-hidden' : ''}">
       <div class="project-header">
         <div class="project-title">
-          <h2>📁 ${escapeHtml(project.name)}</h2>
+          <h2>${escapeHtml(project.name)}</h2>
           ${runningCount > 0 ? `<span class="status-summary">${runningCount} 个服务运行中</span>` : ''}
           ${project.path ? `<span class="project-path">${escapeHtml(project.path)}</span>` : ''}
         </div>
