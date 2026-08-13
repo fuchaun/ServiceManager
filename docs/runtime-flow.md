@@ -238,9 +238,25 @@ POST /api/services/:serviceId/stop
 
 Service Manager 收到 `SIGINT` 或 `SIGTERM` 时会执行 `cleanup()`：
 
+默认行为：
+
+1. 清理自身的重接管轮询器。
+2. 保存当前 `logs/runtime-state.json`。
+3. 不停止已托管服务。
+4. 退出 Service Manager。
+
+因此，正常关闭或重启 Service Manager 不会影响电脑里已经运行的服务。下次启动时，会根据 runtime-state 对仍在运行的服务做身份校验并重接管。
+
+如果显式设置：
+
+```bash
+STOP_SERVICES_ON_EXIT=1 npm start
+```
+
+则退出时会：
+
 1. 对所有管理中的进程组发送 `SIGTERM`。
 2. 删除 `logs/runtime-state.json`。
 3. 退出 Service Manager。
 
-因此，正常退出会停止所有被管理服务，不会触发重接管。重接管主要用于异常退出后的恢复。
-
+这种模式适合你明确希望“管理器退出时一起关闭所有托管服务”的场景，不是默认行为。

@@ -8,6 +8,7 @@ const crypto = require('crypto');
 
 const PORT = parseInt(process.env.PORT || '3456', 10);
 const HOST = process.env.HOST || '127.0.0.1';
+const STOP_SERVICES_ON_EXIT = process.env.STOP_SERVICES_ON_EXIT === '1';
 const CONFIG_FILE = path.join(__dirname, 'config.json');
 const LOGS_DIR = path.join(__dirname, 'logs');
 const RUNTIME_STATE_FILE = path.join(LOGS_DIR, 'runtime-state.json');
@@ -1159,11 +1160,15 @@ function cleanup() {
     clearInterval(reattachedPollTimer);
     reattachedPollTimer = null;
   }
-  for (const [, proc] of processes) {
-    try { process.kill(-(proc.pgid || proc.pid), 'SIGTERM'); } catch {}
+  if (STOP_SERVICES_ON_EXIT) {
+    for (const [, proc] of processes) {
+      try { process.kill(-(proc.pgid || proc.pid), 'SIGTERM'); } catch {}
+    }
+    // Explicit stop-on-exit mode should not reattach killed processes next time.
+    try { fs.unlinkSync(RUNTIME_STATE_FILE); } catch {}
+  } else {
+    saveRuntimeState();
   }
-  // Clear runtime state so next startup doesn't try to re-attach killed processes
-  try { fs.unlinkSync(RUNTIME_STATE_FILE); } catch {}
 }
 
 process.on('SIGINT', () => { cleanup(); process.exit(0); });
