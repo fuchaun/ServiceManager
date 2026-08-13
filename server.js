@@ -20,6 +20,7 @@ let config = { projects: [] };
 const processes = new Map();   // serviceId -> { child, pid, startedAt, reattached? }
 const logBuffers = new Map();  // serviceId -> logEntry[]
 const wsClients = new Set();
+let reattachedPollTimer = null;
 
 // ============ Config ============
 function loadConfig() {
@@ -63,6 +64,115 @@ function addToBuffer(serviceId, entry) {
 
 function ensureLogsDir() {
   if (!fs.existsSync(LOGS_DIR)) fs.mkdirSync(LOGS_DIR, { recursive: true });
+}
+
+function resolveServiceCwd(project, service) {
+  let cwd = service.cwd || project.path || process.cwd();
+  if (!path.isAbsolute(cwd) && project.path) {
+    cwd = path.resolve(project.path, cwd);
+  }
+  return cwd;
+}
+
+function getProcessInfo(pid) {
+  try {
+    const out = execFileSync('ps', ['-p', String(pid), '-o', 'pid=,pgid=,lstart=,command='], { encoding: 'utf-8' }).trim();
+    const m = out.match(/^(\d+)\s+(\d+)\s+(.{24})\s+(.+)$/);
+    if (!m) return null;
+    return {
+      pid: parseInt(m[1]),
+      pgid: parseInt(m[2]),
+      lstart: m[3].trim(),
+      command: m[4].trim(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function commandMatches(expected, actual) {
+  const normalize = value => String(value || '').replace(/\s+/g, ' ').trim();
+  const e = normalize(expected);
+  const a = normalize(actual);
+  if (!e || !a) return false;
+  return a.includes(e) || e.includes(a) || a.includes(`-c ${e}`) || a.includes(`-c '${e}'`) || a.includes(`-c "${e}"`);
+}
+
+function getPortOccupantPid(port) {
+  if (!port) return null;
+  try {
+    const out = execFileSync('lsof', ['-iTCP:' + port, '-sTCP:LISTEN', '-P', '-n', '-t'], { encoding: 'utf-8' }).trim();
+    const pid = parseInt(out.split('\n')[0]);
+    return pid || null;
+  } catch {
+    return null;
+  }
+}
+
+function getProcessGroupId(pid) {
+  try {
+    return parseInt(execFileSync('ps', ['-p', String(pid), '-o', 'pgid='], { encoding: 'utf-8' }).trim());
+  } catch {
+    return null;
+  }
+}
+
+function buildRuntimeIdentity(project, service, pid, startedAt) {
+  const processInfo = getProcessInfo(pid);
+  return {
+    pid,
+    pgid: processInfo ? processInfo.pgid : pid,
+    command: service.command,
+    cwd: resolveServiceCwd(project, service),
+    port: service.port || '',
+    startedAt,
+    processStart: processInfo ? processInfo.lstart : '',
+    processCommand: processInfo ? processInfo.command : '',
+  };
+}
+
+function verifyRuntimeIdentity(info, project, service) {
+  if (!info || !info.pid) return { ok: false, reason: 'missing runtime identity' };
+
+  const processInfo = getProcessInfo(info.pid);
+  if (!processInfo) return { ok: false, reason: `PID ${info.pid} is no longer running` };
+
+  if (info.pgid && processInfo.pgid !== info.pgid) {
+    return { ok: false, reason: `PID ${info.pid} process group changed (${processInfo.pgid} != ${info.pgid})` };
+  }
+
+  if (info.processStart && processInfo.lstart !== info.processStart) {
+    return { ok: false, reason: `PID ${info.pid} start time changed` };
+  }
+
+  const expectedCommand = info.command || service.command;
+  const savedCommandMatches = info.processCommand && processInfo.command === info.processCommand;
+  const configuredCommandMatches = commandMatches(expectedCommand, processInfo.command);
+  if (!savedCommandMatches && !configuredCommandMatches) {
+    return { ok: false, reason: `PID ${info.pid} command changed` };
+  }
+
+  const port = info.port || service.port;
+  if (port) {
+    const occupantPid = getPortOccupantPid(port);
+    if (!occupantPid) return { ok: false, reason: `port ${port} is no longer listening` };
+    const occupantPgid = getProcessGroupId(occupantPid);
+    if (occupantPid !== info.pid && occupantPgid !== processInfo.pgid) {
+      return { ok: false, reason: `port ${port} belongs to PID ${occupantPid}` };
+    }
+  }
+
+  const expectedCwd = info.cwd || resolveServiceCwd(project, service);
+  return {
+    ok: true,
+    pid: processInfo.pid,
+    pgid: processInfo.pgid,
+    cwd: expectedCwd,
+    command: expectedCommand,
+    port: port || '',
+    processStart: processInfo.lstart,
+    processCommand: processInfo.command,
+  };
 }
 
 function readJsonFile(file) {
@@ -229,7 +339,16 @@ function saveRuntimeState() {
   try {
     const state = {};
     for (const [serviceId, proc] of processes) {
-      state[serviceId] = { pid: proc.pid, startedAt: proc.startedAt };
+      state[serviceId] = {
+        pid: proc.pid,
+        pgid: proc.pgid || proc.pid,
+        startedAt: proc.startedAt,
+        command: proc.command || '',
+        cwd: proc.cwd || '',
+        port: proc.port || '',
+        processStart: proc.processStart || '',
+        processCommand: proc.processCommand || '',
+      };
     }
     ensureLogsDir();
     fs.writeFileSync(RUNTIME_STATE_FILE, JSON.stringify(state, null, 2));
@@ -256,30 +375,63 @@ function restoreRuntimeState() {
   let restoredCount = 0;
   for (const [serviceId, info] of Object.entries(state)) {
     // Skip if service no longer exists in config
-    if (!findService(serviceId)) continue;
+    const found = findService(serviceId);
+    if (!found) continue;
     // Skip if already in processes Map (shouldn't happen on fresh start)
     if (processes.has(serviceId)) continue;
 
-    if (isProcessAlive(info.pid)) {
+    const verified = verifyRuntimeIdentity(info, found.project, found.service);
+    if (verified.ok) {
       // Re-attach: process is still alive from before restart
       processes.set(serviceId, {
         child: null,
-        pid: info.pid,
+        pid: verified.pid,
+        pgid: verified.pgid,
         startedAt: info.startedAt,
+        command: verified.command,
+        cwd: verified.cwd,
+        port: verified.port,
+        processStart: verified.processStart,
+        processCommand: verified.processCommand,
         reattached: true,
       });
       const entry = {
         type: 'log', serviceId, stream: 'stderr',
-        data: `[Reattached — process was already running (PID ${info.pid}), new log output unavailable. Stop & restart to restore full logging.]`,
+        data: `[Reattached — verified process is still running (PID ${verified.pid}), new log output unavailable. Stop & restart to restore full logging.]`,
         timestamp: Date.now(),
       };
       addToBuffer(serviceId, entry);
       restoredCount++;
+    } else if (info.pid) {
+      const entry = {
+        type: 'log', serviceId, stream: 'stderr',
+        data: `[Reattach skipped — ${verified.reason}.]`,
+        timestamp: Date.now(),
+      };
+      addToBuffer(serviceId, entry);
     }
   }
 
   saveRuntimeState(); // persist cleaned-up state (without dead PIDs)
+  syncReattachedPoller();
   return restoredCount;
+}
+
+function hasReattachedProcesses() {
+  for (const [, proc] of processes) {
+    if (proc.reattached) return true;
+  }
+  return false;
+}
+
+function syncReattachedPoller() {
+  const shouldRun = hasReattachedProcesses();
+  if (shouldRun && !reattachedPollTimer) {
+    reattachedPollTimer = setInterval(pollReattachedProcesses, 3000);
+  } else if (!shouldRun && reattachedPollTimer) {
+    clearInterval(reattachedPollTimer);
+    reattachedPollTimer = null;
+  }
 }
 
 // Poll reattached processes for exit (no child.on('exit') available)
@@ -287,7 +439,9 @@ function pollReattachedProcesses() {
   let changed = false;
   for (const [serviceId, proc] of processes) {
     if (!proc.reattached) continue;
-    if (isProcessAlive(proc.pid)) continue;
+    const found = findService(serviceId);
+    const verified = found ? verifyRuntimeIdentity(proc, found.project, found.service) : { ok: false, reason: 'service no longer exists' };
+    if (verified.ok) continue;
 
     // Process has exited
     processes.delete(serviceId);
@@ -295,7 +449,7 @@ function pollReattachedProcesses() {
     const status = proc.killing ? 'stopped' : 'error';
     const entry = {
       type: 'log', serviceId, stream: 'stderr',
-      data: `[Process exited${proc.killing ? ' — stopped by user' : ' — detected via polling'}]`,
+      data: `[Process detached${proc.killing ? ' — stopped by user' : ` — ${verified.reason}`}]`,
       timestamp: Date.now(),
     };
     broadcast(entry);
@@ -303,6 +457,7 @@ function pollReattachedProcesses() {
     broadcast({ type: 'status', serviceId, status, pid: null, timestamp: Date.now() });
   }
   if (changed) saveRuntimeState();
+  syncReattachedPoller();
 }
 
 // ============ Unmanaged Service Notes ============
@@ -528,10 +683,7 @@ function startProcess(serviceId) {
     }
   }
 
-  let cwd = service.cwd || project.path || process.cwd();
-  if (!path.isAbsolute(cwd) && project.path) {
-    cwd = path.resolve(project.path, cwd);
-  }
+  const cwd = resolveServiceCwd(project, service);
 
   const env = { ...process.env, ...(service.env || {}) };
 
@@ -551,7 +703,19 @@ function startProcess(serviceId) {
     return { error: 'Failed to spawn process' };
   }
 
-  const proc = { child, pid: child.pid, startedAt: Date.now() };
+  const startedAt = Date.now();
+  const identity = buildRuntimeIdentity(project, service, child.pid, startedAt);
+  const proc = {
+    child,
+    pid: child.pid,
+    pgid: identity.pgid,
+    startedAt,
+    command: identity.command,
+    cwd: identity.cwd,
+    port: identity.port,
+    processStart: identity.processStart,
+    processCommand: identity.processCommand,
+  };
   processes.set(serviceId, proc);
   if (!logBuffers.has(serviceId)) logBuffers.set(serviceId, []);
   saveRuntimeState();
@@ -640,13 +804,27 @@ function stopProcess(serviceId) {
 
   // Avoid duplicate SIGTERM / SIGKILL timers
   if (proc.killing) return { error: 'Already stopping' };
+
+  const found = findService(serviceId);
+  if (proc.reattached) {
+    const verified = found ? verifyRuntimeIdentity(proc, found.project, found.service) : { ok: false, reason: 'service no longer exists' };
+    if (!verified.ok) {
+      processes.delete(serviceId);
+      saveRuntimeState();
+      syncReattachedPoller();
+      broadcast({ type: 'status', serviceId, status: 'stopped', pid: null, timestamp: Date.now() });
+      return { error: `重接管进程身份已变化，已取消停止操作：${verified.reason}` };
+    }
+    proc.pgid = verified.pgid;
+  }
   proc.killing = true;
 
   try {
-    process.kill(-proc.pid, 'SIGTERM');
+    process.kill(-(proc.pgid || proc.pid), 'SIGTERM');
   } catch {
     processes.delete(serviceId);
     saveRuntimeState();
+    syncReattachedPoller();
     broadcast({ type: 'status', serviceId, status: 'stopped', pid: null, timestamp: Date.now() });
     return { success: true };
   }
@@ -654,7 +832,7 @@ function stopProcess(serviceId) {
   // Force kill after 5s (works for both normal and reattached processes)
   setTimeout(() => {
     if (processes.has(serviceId)) {
-      try { process.kill(-proc.pid, 'SIGKILL'); } catch {}
+      try { process.kill(-(proc.pgid || proc.pid), 'SIGKILL'); } catch {}
     }
   }, 5000);
 
@@ -948,6 +1126,17 @@ app.post('/api/unmanaged/kill', (req, res) => {
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: '/ws' });
 
+function handleServerError(err) {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`Port ${PORT} is already in use. Start with another port, for example: PORT=3457 npm start`);
+    process.exit(1);
+  }
+  throw err;
+}
+
+server.on('error', handleServerError);
+wss.on('error', handleServerError);
+
 wss.on('connection', (ws) => {
   wsClients.add(ws);
 
@@ -966,8 +1155,12 @@ wss.on('connection', (ws) => {
 
 // ============ Cleanup ============
 function cleanup() {
+  if (reattachedPollTimer) {
+    clearInterval(reattachedPollTimer);
+    reattachedPollTimer = null;
+  }
   for (const [, proc] of processes) {
-    try { process.kill(-proc.pid, 'SIGTERM'); } catch {}
+    try { process.kill(-(proc.pgid || proc.pid), 'SIGTERM'); } catch {}
   }
   // Clear runtime state so next startup doesn't try to re-attach killed processes
   try { fs.unlinkSync(RUNTIME_STATE_FILE); } catch {}
@@ -979,14 +1172,6 @@ process.on('SIGTERM', () => { cleanup(); process.exit(0); });
 // ============ Start ============
 loadConfig();
 const restored = restoreRuntimeState();
-setInterval(pollReattachedProcesses, 3000);
-server.on('error', (err) => {
-  if (err.code === 'EADDRINUSE') {
-    console.error(`Port ${PORT} is already in use. Start with another port, for example: PORT=3457 npm start`);
-    process.exit(1);
-  }
-  throw err;
-});
 
 server.listen(PORT, HOST, () => {
   console.log(`\n  ⚡ Service Manager running at http://${HOST}:${PORT}`);
